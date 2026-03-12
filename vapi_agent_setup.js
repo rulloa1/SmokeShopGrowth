@@ -59,20 +59,21 @@ COLLECTING CONTACT INFO:
 → Spell the email address back letter by letter to confirm.
 
 CLOSE (after collecting):
-"Perfect. I'll send that over to you right now. Take your time looking it over, and let me know if you have any questions. Is there anything else I can help you with before I let you go?"
+"Awesome. I'll shoot that over to you now. Have a look when you get a chance, and hope you have a great rest of your day!"
 
 POLITE GOODBYE (no interest):
-"Totally fine — appreciate your time. Have a great day!"
+"No worries at all, appreciate your time. Have a good one!"
 
 IMPORTANT:
 - Never mention cost unless asked.
 - Never pressure anyone.
-- DO NOT rush to end the call once you get their info. Maintain a relaxed, conversational pace and give them a chance to ask questions.
+- DO NOT rush to end the call once you get their info. Let the natural flow conclude.
 - If they ask to be removed from the list, say "Absolutely — sorry to bother you. Have a great day!" and end the call.
 - Extract and save: contact_method (email/none), contact_value (email address), outcome (interested/not_interested/no_contact_info/no_answer/voicemail).`;
 
 const assistantConfig = {
     name: "Smoke Shop Outbound Agent",
+    firstMessageMode: "assistant-waits-for-user",
 
     // ── Transcription ──────────────────────────────────────────────────────────
     transcriber: {
@@ -105,13 +106,23 @@ const assistantConfig = {
     },
 
     // ── First message ──────────────────────────────────────────────────────────
-    firstMessage: "Hi, is this {{business_name}}?",
+    // Removing firstMessage makes the agent wait for the user to speak first.
+    // firstMessage: "Hi, is this {{business_name}}?",
 
     // ── Call behavior ──────────────────────────────────────────────────────────
     silenceTimeoutSeconds: 30,
     maxDurationSeconds: 300, // 5 min max
     backgroundSound: "off",
     endCallMessage: "Have a great day! Goodbye.",
+
+    // ── Interruption & Noise Settings ──────────────────────────────────────────
+    // Prevent background noise/short grunts from interrupting the agent
+    backgroundDenoisingEnabled: true,
+    stopSpeakingPlan: {
+        numWords: 2,          // Requires the user to say at least 2 words to interrupt
+        voiceSeconds: 0.4,    // User must speak for at least 0.4s
+        backoffSeconds: 1,    // Wait 1s after interruption stops before resuming
+    },
 
     // ── End call phrases ───────────────────────────────────────────────────────
     endCallPhrases: [

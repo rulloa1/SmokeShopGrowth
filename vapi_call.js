@@ -63,8 +63,6 @@ async function makeCall({ phone, name, city, leadId }) {
                 business_name: name,
                 city: city || "Houston",
             },
-            // Override first message with actual business name
-            firstMessage: `Hi, is this ${name}?`,
         },
 
         // Metadata passed back in webhook

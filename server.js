@@ -459,6 +459,60 @@ async function exportToSheets(spreadsheetId, csvPath, sheetTitle) {
 }
 
 // ──────────────────────────────────────────────
+// Route: Create Stripe Checkout Session
+// ──────────────────────────────────────────────
+// POST { email, business_name, city, tier }
+// Returns { checkout_url }
+app.post('/api/create-checkout', webhookLimiter, async (req, res) => {
+    const stripe = require('stripe')(process.env.STRIPE_API_KEY);
+    if (!process.env.STRIPE_API_KEY) {
+        return res.status(500).json({ error: 'STRIPE_API_KEY not set' });
+    }
+
+    const { email, business_name, city, tier = 'growth' } = req.body || {};
+    if (!email || !business_name) {
+        return res.status(400).json({ error: 'email and business_name are required' });
+    }
+
+    const TIER_PRICES = {
+        starter: { setup: 19900, name: 'Starter Website' },
+        growth:  { setup: 29900, name: 'Growth Website' },
+        pro:     { setup: 49900, name: 'Pro Website' },
+    };
+    const selected = TIER_PRICES[tier] || TIER_PRICES.growth;
+    const DEMO_BASE_URL = process.env.DEMO_BASE_URL || 'https://smoke-shop-premium-demo.netlify.app';
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode: 'payment',
+            client_reference_id: email,
+            customer_email: email,
+            metadata: { business_name, city, tier },
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: `${selected.name} — ${business_name}`,
+                        description: `Custom smoke shop website for ${business_name} in ${city}`,
+                    },
+                    unit_amount: selected.setup,
+                },
+                quantity: 1,
+            }],
+            success_url: `${DEMO_BASE_URL}/?shop=${encodeURIComponent(business_name)}&city=${encodeURIComponent(city)}&paid=true`,
+            cancel_url: `${DEMO_BASE_URL}/?shop=${encodeURIComponent(business_name)}&city=${encodeURIComponent(city)}`,
+        });
+
+        console.log(`💳 Checkout session created for ${business_name}: ${session.url}`);
+        res.json({ checkout_url: session.url });
+    } catch (err) {
+        console.error('Stripe checkout error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ──────────────────────────────────────────────
 // Template Form Submission Endpoint
 // ──────────────────────────────────────────────
 const templateSubmissions = [];

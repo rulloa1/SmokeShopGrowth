@@ -12,9 +12,14 @@ def run_simulation():
     print(f"Time: {time.ctime()}")
     print("\n[SIMULATION] Triggering Simulated Stripe checkout.session.completed Event...\n")
     
-    # Mock Customer Data (Usually comes from Stripe Checkout payload)
+    # Mock Customer Data — simulates what Stripe would send
     mock_email = "testowner@cloud9smokeshop.com"
     mock_ref_id = "test_lead_id_777"
+    mock_stripe_metadata = {
+        "business_name": "Cloud 9 Smoke Shop",
+        "city": "Houston",
+        "tier": "growth",
+    }
     
     # --- PHASE 1: CRM UPDATE ---
     print(">>> PHASE 1: CRM Update (Marking as PAID)")
@@ -22,14 +27,16 @@ def run_simulation():
     time.sleep(2)
     
     # --- PHASE 2: DEPLOYMENT & DELIVERY ---
+    # This now:
+    # 1. Looks up real lead data from Google Sheets CRM
+    # 2. Falls back to Stripe metadata if CRM lookup fails
+    # 3. Deploys via deploy_agent.py (clone template → inject config → Vercel)
+    # 4. Runs QA via qa_agent.py (Playwright headless checks)
+    # 5. Binds custom domain if provided (domain_agent.py)
+    # 6. Sends welcome email + enrolls in upsell drip (delivery_agent.py)
+    # 7. Logs failures to retry queue (error_handler.py)
     print("\n>>> PHASE 2: Automated Deployment, QA, & Delivery")
-    # This will call trigger_site_deployment which:
-    # 1. Calls deploy_agent.py (Clones template, injects data, runs Vercel deploy)
-    # 2. Inside deploy_agent, if successful -> Calls qa_agent.py (Playwright check)
-    # 3. Inside deploy_agent, if custom_domain -> Calls domain_agent.py
-    # 4. Back in webhook logic -> Calls delivery_agent.py (Twilio/SendGrid)
-    
-    trigger_site_deployment(mock_email, mock_ref_id)
+    trigger_site_deployment(mock_email, mock_ref_id, mock_stripe_metadata)
     
     print("\n=====================================================")
     print("   [*] FULL PIPELINE SIMULATION COMPLETE ")

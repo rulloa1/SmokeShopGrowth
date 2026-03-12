@@ -1,6 +1,7 @@
 import os
 import json
 import smtplib
+import requests
 from email.message import EmailMessage
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -13,14 +14,20 @@ SMTP_USER = os.getenv('SMTP_USER')
 SMTP_PASS = os.getenv('SMTP_PASS')
 SENDER_NAME = os.getenv('AGENT_NAME', 'Alex')
 
+# Twilio for SMS delivery
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_FROM_NUMBER = os.getenv('TWILIO_FROM_NUMBER') or os.getenv('TWILIO_PHONE_NUMBER')
+
 UPSELL_QUEUE_FILE = 'data/upsell_queue.json'
 
+
 def send_welcome_email(client_email, shop_name, live_url):
-    """Sends a professional "Welcome Package" email with the link and instructions"""
+    """Sends a professional 'Welcome Package' email with the live URL."""
     if not SMTP_USER or not SMTP_PASS:
         print(f"[-] SMTP credentials missing. Mocking Email to {client_email}")
         return False
-        
+
     msg = EmailMessage()
     msg['Subject'] = f"Welcome aboard! Custom Website for {shop_name} is LIVE 🚀"
     msg['From'] = f"{SENDER_NAME} <{SMTP_USER}>"
@@ -53,25 +60,26 @@ def send_welcome_email(client_email, shop_name, live_url):
 
         <p style="color:#aaa;font-size:.9rem;line-height:1.7;">
           <strong>Next Steps:</strong><br/>
-          If you opted for a custom domain (like www.yourshop.com), our team is currently configuring the DNS records for you and it will propagate in the next 24-48 hours.
+          If you opted for a custom domain (like www.yourshop.com), our team is currently
+          configuring the DNS records for you and it will propagate in the next 24-48 hours.
           Otherwise, your site is fully operational on the provided URL above!
         </p>
-        
+
         <p style="color:#aaa;font-size:.9rem;line-height:1.7;margin-top:20px;">
-          Reach out directly to this email if you need any help finding your way around. Welcome to the family!
+          Reach out directly to this email if you need any help. Welcome to the family!
         </p>
 
         <hr style="border:none;border-top:1px solid #222;margin:32px 0;" />
 
         <p style="color:#666;font-size:.82rem;">
-          {SENDER_NAME} • Automated Delivery Agent<br />
-          SmokeShopGrowth Systems
+          {SENDER_NAME} • SmokeShopGrowth<br />
+          Custom website for {shop_name}
         </p>
       </div>
     </body>
     </html>
     """
-    
+
     msg.set_content(f"Hey {shop_name},\n\nYour site is live! Check it out here: {live_url}\n\n— {SENDER_NAME}")
     msg.add_alternative(html_content, subtype='html')
 
@@ -87,12 +95,47 @@ def send_welcome_email(client_email, shop_name, live_url):
         return False
 
 
+def send_welcome_sms(phone, shop_name, live_url):
+    """Send a welcome SMS via Twilio with the live URL."""
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not TWILIO_FROM_NUMBER:
+        print(f"[-] Twilio not configured — skipping SMS to {phone}")
+        return False
+
+    # Normalize to E.164
+    digits = ''.join(c for c in phone if c.isdigit())
+    if digits.startswith('1') and len(digits) == 11:
+        normalized = f"+{digits}"
+    elif len(digits) == 10:
+        normalized = f"+1{digits}"
+    else:
+        normalized = f"+{digits}"
+
+    body = (
+        f"🎉 Hey {shop_name}! Your custom website is LIVE: {live_url}\n\n"
+        f"— {SENDER_NAME}, SmokeShopGrowth"
+    )
+
+    try:
+        resp = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json",
+            data={"To": normalized, "From": TWILIO_FROM_NUMBER, "Body": body},
+            auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+        )
+        if resp.status_code in (200, 201):
+            print(f"[+] Welcome SMS sent to {normalized}")
+            return True
+        else:
+            print(f"[-] Twilio SMS failed: {resp.status_code} {resp.text}")
+            return False
+    except Exception as e:
+        print(f"[-] Failed to send SMS: {e}")
+        return False
+
+
 def enroll_in_upsell_drip(client_name, client_email):
-    """
-    Enrolls the user in a JSON-backed 7-day or 14-day email drip.
-    """
+    """Enrolls the user in a JSON-backed 7-day email drip."""
     os.makedirs('data', exist_ok=True)
-    
+
     queue_data = []
     if os.path.exists(UPSELL_QUEUE_FILE):
         try:
@@ -100,8 +143,7 @@ def enroll_in_upsell_drip(client_name, client_email):
                 queue_data = json.load(f)
         except Exception:
             queue_data = []
-            
-    # Add new entry
+
     new_entry = {
         "client_name": client_name,
         "email": client_email,
@@ -109,44 +151,47 @@ def enroll_in_upsell_drip(client_name, client_email):
         "day_3_sent": False,
         "day_7_sent": False
     }
-    
-    # Check if already enrolled to avoid duplicates
+
     if not any(entry.get('email') == client_email for entry in queue_data):
         queue_data.append(new_entry)
         with open(UPSELL_QUEUE_FILE, 'w') as f:
             json.dump(queue_data, f, indent=4)
-        print(f"  [UPSELL] {client_name} ({client_email}) has been enrolled in the 'Post-Launch SEO Upsell' drip sequence.")
+        print(f"  [UPSELL] {client_name} ({client_email}) enrolled in post-launch drip.")
     else:
         print(f"  [UPSELL] {client_email} is already in the upsell queue.")
 
 
 def trigger_delivery_flow(lead_data, live_url):
     """
-    Main function to execute Stage 13 & 14.
+    Main delivery function — sends welcome email + SMS + enrolls in upsell drip.
     """
-    print(f"\n[DELIVERY AGENT] Initiating Delivery Protocol for {lead_data.get('business_name')}...")
-    
-    phone = lead_data.get('phone')
-    email = lead_data.get('email', 'N/A')
     shop_name = lead_data.get('business_name', 'Shop Owner')
-    
-    # 1. Send Email
-    if email != 'N/A':
+    email = lead_data.get('email', 'N/A')
+    phone = lead_data.get('phone', '')
+
+    print(f"\n[DELIVERY AGENT] Initiating Delivery for {shop_name}...")
+
+    # 1. Send Welcome Email
+    if email and email != 'N/A':
         send_welcome_email(email, shop_name, live_url)
-        
-    # 2. Queue Upsell Sequence
-    enroll_in_upsell_drip(shop_name, email)
-    
-    print("\n  [*] DELIVERY PROTOCOL COMPLETE. The client has received their product.")
+
+    # 2. Send Welcome SMS (if phone available)
+    if phone:
+        send_welcome_sms(phone, shop_name, live_url)
+
+    # 3. Queue Upsell Sequence
+    if email and email != 'N/A':
+        enroll_in_upsell_drip(shop_name, email)
+
+    print(f"\n  [*] DELIVERY PROTOCOL COMPLETE for {shop_name}.")
 
 
 if __name__ == "__main__":
-    # Test payload
     test_client = {
         "business_name": "Cloud 9 Smoke Shop",
-        "phone": "+17135559999", # Note: Twilio needs E.164 format
-        "email": "roryulloa@gmail.com" # Testing with real target
+        "phone": "+17135559999",
+        "email": "roryulloa@gmail.com"
     }
     test_url = "https://premiumsmokeshop-cloud-9.vercel.app"
-    
+
     trigger_delivery_flow(test_client, test_url)

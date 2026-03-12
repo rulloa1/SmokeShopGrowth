@@ -183,7 +183,7 @@
             <li>Click-to-Call Button</li>
             <li>Mobile-First Design</li>
           </ul>
-          <a href="https://buy.stripe.com/cNi8wO5Na2DwfSB9WJ1Jm05" class="btn btn-glass btn-block-large" target="_blank"
+          <a href="https://buy.stripe.com/cNi8wO5Na2DwfSB9WJ1Jm05" class="btn btn-glass btn-block-large stripe-checkout-btn" data-tier="starter" target="_blank"
             rel="noopener noreferrer">Get Starter</a>
         </div>
 
@@ -201,7 +201,7 @@
             <li>Click-to-Call Button</li>
             <li>Mobile-First Design</li>
           </ul>
-          <a href="https://buy.stripe.com/dRmfZgcby1zs9ud2uh1Jm06" class="glow-btn btn-block-large" target="_blank"
+          <a href="https://buy.stripe.com/dRmfZgcby1zs9ud2uh1Jm06" class="glow-btn btn-block-large stripe-checkout-btn" data-tier="growth" target="_blank"
             rel="noopener noreferrer">Get Growth</a>
         </div>
 
@@ -218,7 +218,7 @@
             <li>Monthly Analytics Report</li>
             <li>Priority Support</li>
           </ul>
-          <a href="https://buy.stripe.com/eVq28qdfC5PI7m57OB1Jm04" class="btn btn-glass btn-block-large" target="_blank"
+          <a href="https://buy.stripe.com/eVq28qdfC5PI7m57OB1Jm04" class="btn btn-glass btn-block-large stripe-checkout-btn" data-tier="pro" target="_blank"
             rel="noopener noreferrer">Get Pro</a>
         </div>
 
@@ -548,6 +548,30 @@
     })();
   </script>
 
+  <script>
+    // ── Stripe Payment Link personalization ───────────────────────────────────
+    // Appends client_reference_id (shop name) and prefilled_email to Stripe
+    // Payment Links so we can identify the buyer when payment completes.
+    (function personalizeStripeLinks() {
+      const B = window.BUSINESS;
+      if (!B || !B.name) return;
+
+      document.querySelectorAll('.stripe-checkout-btn').forEach(btn => {
+        const baseUrl = btn.getAttribute('href');
+        if (!baseUrl || !baseUrl.includes('buy.stripe.com')) return;
+
+        const sep = baseUrl.includes('?') ? '&' : '?';
+        const params = new URLSearchParams();
+        params.set('client_reference_id', B.name + '|' + (B.city || ''));
+
+        // Pre-fill email if we have it from form or URL
+        const urlEmail = new URLSearchParams(window.location.search).get('email');
+        if (urlEmail) params.set('prefilled_email', urlEmail);
+
+        btn.setAttribute('href', baseUrl + sep + params.toString());
+      });
+    })();
+  </script>
   <script src="animations.js"></script>
 </body>
 

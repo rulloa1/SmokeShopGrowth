@@ -45,7 +45,7 @@ async function findLeadDetails(businessName, city) {
 
 // ── Build the personalized demo URL ──────────────────────────────────────────
 function buildDemoUrl(businessName, city, extraDetails = {}) {
-    const base = process.env.DEMO_BASE_URL || process.env.WEBHOOK_URL?.replace("/vapi/webhook", "") || "https://yourdomain.com";
+    const base = process.env.DEMO_BASE_URL || "https://smoke-shop-premium-demo.netlify.app";
 
     // Filter out empty extra details
     const cleanDetails = Object.fromEntries(
@@ -58,6 +58,7 @@ function buildDemoUrl(businessName, city, extraDetails = {}) {
         ...cleanDetails
     });
 
+    // Static deploys (Netlify/Vercel) serve from root; dynamic servers use /demo route
     const isStaticDeploy = base.includes("netlify.app") || base.includes("vercel.app");
     const route = isStaticDeploy ? "" : "/demo";
 
