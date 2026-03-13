@@ -36,6 +36,16 @@ const webhookLimiter = rateLimit({
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Explicitly serve index.html for the root route
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Health check endpoint
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Serve deployments folder as static
 const deployPath = path.join(__dirname, 'deployments');
 if (!fs.existsSync(deployPath)) fs.mkdirSync(deployPath);
@@ -128,6 +138,7 @@ app.post('/api/run', (req, res) => {
     const files = {
         leads: path.join(dataDir, 'leads.csv'),
         audited: path.join(dataDir, 'audited_leads.csv'),
+        socialAudited: path.join(dataDir, 'social_audited.csv'),
         outreach: path.join(dataDir, 'outreach_messages.csv'),
         demo: path.join(dataDir, 'demo_leads.csv'),
         emailLog: path.join('logs', 'email_log.csv'),
@@ -199,6 +210,7 @@ app.get('/api/download/:jobId/:file', (req, res) => {
     const fileMap = {
         leads: job.files.leads,
         audited: job.files.audited,
+        socialAudited: job.files.socialAudited,
         outreach: job.files.outreach,
         demo: job.files.demo,
     };
@@ -288,6 +300,107 @@ app.post('/webhook/call', webhookLimiter, async (req, res) => {
     }
 });
 
+// ──────────────────────────────────────────────
+// Routes: Social Media Manager
+// ──────────────────────────────────────────────
+const { generateCalendar } = require('./src/node/social_content_generator.js');
+const { getBufferProfiles, schedulePosts } = require('./src/node/social_scheduler.js');
+
+app.post('/api/social/generate-calendar', async (req, res) => {
+    const { business_name, city, instagram, specialty } = req.body;
+    if (!business_name) return res.status(400).json({ error: 'business_name is required' });
+    
+    try {
+        const data = await generateCalendar({ business_name, city, instagram, specialty });
+        res.json({ posts: data.posts });
+    } catch (err) {
+        console.error('Content generation error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/social/buffer-profiles', async (req, res) => {
+    try {
+        const profiles = await getBufferProfiles();
+        res.json({ profiles });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/social/schedule', async (req, res) => {
+    const { posts, profileId, businessName } = req.body;
+    if (!posts || !profileId) return res.status(400).json({ error: 'posts and profileId are required' });
+    
+    try {
+        const result = await schedulePosts(posts, profileId, businessName);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/social/outreach-preview', async (req, res) => {
+    const { inputFile, limit } = req.body;
+    try {
+        const dataDir = path.join(__dirname, 'data');
+        const targetDirs = fs.readdirSync(dataDir);
+        let preview = [];
+        
+        // Find the file in one of the data subdirectories
+        for (const dir of targetDirs) {
+            const potentialPath = path.join(dataDir, dir, inputFile);
+            if (fs.existsSync(potentialPath)) {
+                // Return a dummy preview
+                preview = [
+                    { handle: 'example_shop', message: 'Hey! Love your vibe. Would love to send you a custom demo website we built for you.' },
+                    { handle: 'another_store', message: 'Hey! We noticed you could use a better booking system on your IG. Check out this demo.' }
+                ];
+                break;
+            }
+        }
+        
+        res.json({ preview });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/social/outreach-run', async (req, res) => {
+    const { inputFile, limit } = req.body;
+    
+    // Attempt to locate input file
+    const dataDir = path.join(__dirname, 'data');
+    const targetDirs = fs.existsSync(dataDir) ? fs.readdirSync(dataDir) : [];
+    let targetFile = null;
+    
+    for (const dir of targetDirs) {
+        const potentialPath = path.join(dataDir, dir, inputFile);
+        if (fs.existsSync(potentialPath)) {
+            targetFile = potentialPath;
+            break;
+        }
+    }
+
+    if (!targetFile) {
+        return res.status(404).json({ error: 'Input file not found in any data directory' });
+    }
+
+    // Spawn the outreach script independently (detached or at least unawaited)
+    const proc = spawn('node', [
+        path.join(__dirname, 'src', 'node', 'social_outreach.js'),
+        '--input', targetFile,
+        '--limit', String(limit)
+    ], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    
+    proc.unref();
+
+    res.json({ success: true, message: 'Background job started.' });
+});
+
 
 // ──────────────────────────────────────────────
 // Pipeline runner
@@ -331,13 +444,23 @@ async function runPipeline(jobId) {
     const auditedCount = await countCsvRows(job.files.audited);
     pushLog(jobId, `✅ Audited ${auditedCount} websites.`, 'success');
 
+    // ── Step 2.5: Social Audit ────────────────
+    pushLog(jobId, '📱 Step 2.5 — Social Audit…', 'step');
+    await runChild(jobId, 'node', [
+        path.join(__dirname, 'src', 'node', 'social_audit.js'),
+        '--input', job.files.audited,
+        '--output', job.files.socialAudited
+    ]);
+    const socialAuditedCount = await countCsvRows(job.files.socialAudited);
+    pushLog(jobId, `✅ Social Audited ${socialAuditedCount} websites.`, 'success');
+
     // ── Step 3: Outreach ──────────────────────
     if (process.env.OPENAI_API_KEY) {
         pushLog(jobId, '✍️  Step 3/3 — Generating outreach messages…', 'step');
         job.step = 3;
         await runChild(jobId, 'node', [
             path.join(__dirname, 'src', 'node', 'generate_outreach.js'),
-            '--input', job.files.audited,
+            '--input', job.files.socialAudited, // use socialAudited as input for outreach
             '--output', job.files.outreach,
             '--base-url', job.baseUrl,
         ]);
@@ -355,7 +478,7 @@ async function runPipeline(jobId) {
         job.step = 4;
         await runChild(jobId, 'node', [
             path.join(__dirname, 'src', 'node', 'generate_demo.js'),
-            '--input', fs.existsSync(job.files.outreach) ? job.files.outreach : job.files.audited,
+            '--input', fs.existsSync(job.files.outreach) ? job.files.outreach : job.files.socialAudited,
             '--output', job.files.demo,
             '--limit', '10' // Only do top 10 to save API costs & time
         ]);
@@ -376,6 +499,7 @@ async function runPipeline(jobId) {
             let finalOutput = job.files.audited;
             if (fs.existsSync(job.files.demo)) finalOutput = job.files.demo;
             else if (fs.existsSync(job.files.outreach)) finalOutput = job.files.outreach;
+            else if (fs.existsSync(job.files.socialAudited)) finalOutput = job.files.socialAudited;
 
             await exportToSheets(job.sheetsId, finalOutput, job.city);
             pushLog(jobId, '✅ Exported to Google Sheets.', 'success');
@@ -984,6 +1108,224 @@ app.get('/api/template-submissions', (req, res) => {
         count: templateSubmissions.length,
         submissions: templateSubmissions
     });
+});
+
+// ──────────────────────────────────────────────
+// Social Media Manager Routes
+// ──────────────────────────────────────────────
+
+// POST /api/social/generate-calendar
+// Body: { business_name, city, instagram?, specialty? }
+// Returns: { posts: [...] } — 30 days of post objects
+app.post('/api/social/generate-calendar', async (req, res) => {
+    const { business_name, city = '', instagram = '', specialty = 'smoke shop products' } = req.body || {};
+    if (!business_name) return res.status(400).json({ error: 'business_name is required' });
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'OPENAI_API_KEY not set in .env' });
+
+    const prompt = `You are a social media expert for local smoke shops and vape stores.
+
+Create a 30-day social media content calendar for:
+- Business: ${business_name}
+- City: ${city || 'local area'}
+- Instagram: @${instagram || business_name.replace(/\s+/g, '').toLowerCase()}
+- Specialty: ${specialty}
+
+Return a JSON array of exactly 30 post objects. Each object:
+{
+  "day": <number 1-30>,
+  "platform": "Instagram" | "Facebook",
+  "post_type": "Product Highlight" | "Educational" | "Promotional" | "Community" | "Behind the Scenes",
+  "best_time": "e.g. 6:00 PM",
+  "caption": "<full caption with emojis and hashtags, 150-250 chars>",
+  "hashtags": ["#smoke", "#vape", ...],
+  "cta": "<call to action phrase>",
+  "image_idea": "<brief description of what image to use>"
+}
+
+Return ONLY the JSON array, no markdown, no explanation.`;
+
+    try {
+        const OpenAI = require('openai');
+        const openai = new OpenAI({ apiKey });
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.8,
+            max_tokens: 4000,
+        });
+
+        let raw = completion.choices[0].message.content.trim();
+        // Strip markdown code fences if present
+        raw = raw.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '');
+        const posts = JSON.parse(raw);
+        res.json({ posts, business_name, city });
+    } catch (err) {
+        console.error('Calendar generation error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/social/buffer-profiles
+// Lists Buffer profiles connected to the account
+app.get('/api/social/buffer-profiles', async (req, res) => {
+    const token = process.env.BUFFER_ACCESS_TOKEN;
+    if (!token) return res.status(500).json({ error: 'BUFFER_ACCESS_TOKEN not set in .env' });
+
+    try {
+        const resp = await fetch(`https://api.bufferapp.com/1/profiles.json?access_token=${token}`);
+        if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(`Buffer API error ${resp.status}: ${txt}`);
+        }
+        const profiles = await resp.json();
+        res.json({ profiles: profiles.map(p => ({
+            id: p.id,
+            service: p.service,
+            formatted_username: p.formatted_username || p.service_username,
+        })) });
+    } catch (err) {
+        console.error('Buffer profiles error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/social/schedule
+// Body: { posts, profileId, businessName }
+// Schedules all 30 posts via Buffer API
+app.post('/api/social/schedule', async (req, res) => {
+    const { posts, profileId, businessName } = req.body || {};
+    if (!posts || !profileId) return res.status(400).json({ error: 'posts and profileId are required' });
+
+    const token = process.env.BUFFER_ACCESS_TOKEN;
+    if (!token) return res.status(500).json({ error: 'BUFFER_ACCESS_TOKEN not set in .env' });
+
+    let success = 0;
+    let failed = 0;
+
+    // Schedule starting from tomorrow, ~1 post per day
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 1);
+
+    for (const post of posts) {
+        try {
+            const scheduledAt = new Date(startDate);
+            scheduledAt.setDate(startDate.getDate() + (post.day - 1));
+            // Parse best_time if possible, default to 6pm
+            const timeParts = (post.best_time || '6:00 PM').match(/(\d+):(\d+)\s*(AM|PM)/i);
+            let hours = timeParts ? parseInt(timeParts[1]) : 18;
+            const mins = timeParts ? parseInt(timeParts[2]) : 0;
+            if (timeParts && timeParts[3].toUpperCase() === 'PM' && hours < 12) hours += 12;
+            scheduledAt.setHours(hours, mins, 0, 0);
+
+            const caption = post.caption || '';
+            const hashtags = (post.hashtags || []).join(' ');
+            const text = caption + '\n\n' + hashtags;
+
+            const params = new URLSearchParams({
+                access_token: token,
+                'profile_ids[]': profileId,
+                text,
+                scheduled_at: scheduledAt.toISOString(),
+                shorten: 'false',
+            });
+
+            const bufferResp = await fetch('https://api.bufferapp.com/1/updates/create.json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString(),
+            });
+
+            if (!bufferResp.ok) {
+                const err = await bufferResp.text();
+                console.error(`Buffer schedule failed day ${post.day}:`, err);
+                failed++;
+            } else {
+                success++;
+            }
+
+            // Small delay to avoid rate limits
+            await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+            console.error(`Error scheduling day ${post.day}:`, err.message);
+            failed++;
+        }
+    }
+
+    res.json({ success, failed, total: posts.length });
+});
+
+// POST /api/social/outreach-preview
+// Body: { inputFile, limit }
+// Returns preview of DMs that would be sent (dry run — no actual DMs)
+app.post('/api/social/outreach-preview', async (req, res) => {
+    const { inputFile = 'social_audited.csv', limit = 20 } = req.body || {};
+
+    const csvPath = path.join(__dirname, 'data', inputFile);
+    if (!fs.existsSync(csvPath)) {
+        return res.status(404).json({ error: `File not found: data/${inputFile}` });
+    }
+
+    const leads = [];
+    await new Promise((resolve, reject) => {
+        fs.createReadStream(csvPath)
+            .pipe(csv())
+            .on('data', row => {
+                if (row.instagram && leads.length < Number(limit)) {
+                    leads.push(row);
+                }
+            })
+            .on('end', resolve)
+            .on('error', reject);
+    });
+
+    const preview = leads.map(lead => ({
+        handle: lead.instagram.replace('@', ''),
+        business: lead.name || lead.business_name || 'Business',
+        message: `Hey! 👋 Love what you're doing at ${lead.name || 'your shop'}. We help smoke shops get more customers online with a free custom website demo. Want to see what yours could look like? 🚀`,
+    }));
+
+    res.json({ preview, count: preview.length });
+});
+
+// POST /api/social/outreach-run
+// Body: { inputFile, limit }
+// Spawns the social_outreach.js script as a background job
+app.post('/api/social/outreach-run', async (req, res) => {
+    const { inputFile = 'social_audited.csv', limit = 20 } = req.body || {};
+
+    const csvPath = path.join(__dirname, 'data', inputFile);
+    if (!fs.existsSync(csvPath)) {
+        return res.status(404).json({ error: `File not found: data/${inputFile}` });
+    }
+
+    const scriptPath = path.join(__dirname, 'src', 'node', 'social_outreach.js');
+    if (!fs.existsSync(scriptPath)) {
+        return res.status(500).json({ error: 'social_outreach.js script not found in src/node/' });
+    }
+
+    const ig_user = process.env.IG_USERNAME;
+    const ig_pass = process.env.IG_PASSWORD;
+    if (!ig_user || !ig_pass) {
+        return res.status(500).json({ error: 'IG_USERNAME and IG_PASSWORD not set in .env' });
+    }
+
+    // Fire and forget — outreach runs in background
+    const child = spawn('node', [
+        scriptPath,
+        '--input', csvPath,
+        '--limit', String(limit),
+    ], {
+        shell: false,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env },
+    });
+    child.unref();
+
+    console.log(`📨 Instagram DM outreach started: ${limit} max DMs from ${inputFile}`);
+    res.json({ started: true, limit: Number(limit), inputFile });
 });
 
 // ──────────────────────────────────────────────

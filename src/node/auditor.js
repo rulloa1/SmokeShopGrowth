@@ -127,9 +127,9 @@ async function fastAudit(url) {
     const status = response.status;
     const html = typeof response.data === 'string' ? response.data : '';
 
-    const issues = analyseHtml(html, url, ssl, parseFloat(loadTime));
+    const { issues, socials } = analyseHtml(html, url, ssl, parseFloat(loadTime));
 
-    return { status, ssl, loadTime, html, issues };
+    return { status, ssl, loadTime, html, issues, socials };
 }
 
 /**
@@ -138,14 +138,26 @@ async function fastAudit(url) {
  */
 function analyseHtml(html, url, ssl, loadTimeSec) {
     const issues = [];
+    const socials = { instagram: '', facebook: '' };
 
     if (!ssl) issues.push('No SSL (HTTP only)');
     if (loadTimeSec > 4) issues.push(`Slow load time (${loadTimeSec}s)`);
     else if (loadTimeSec > 2) issues.push(`Moderate load time (${loadTimeSec}s)`);
 
-    if (!html) return issues;
+    if (!html) return { issues, socials };
 
     const $ = cheerio.load(html);
+
+    // Extract social links
+    $('a[href]').each((_, el) => {
+        const href = $(el).attr('href').toLowerCase();
+        if (href.includes('instagram.com/') && !socials.instagram) {
+            socials.instagram = href;
+        }
+        if (href.includes('facebook.com/') && !socials.facebook) {
+            socials.facebook = href;
+        }
+    });
 
     // Mobile viewport
     const hasViewport = $('meta[name="viewport"]').length > 0;
@@ -191,7 +203,7 @@ function analyseHtml(html, url, ssl, loadTimeSec) {
     const hasOG = $('meta[property^="og:"]').length > 0;
     if (!hasOG) issues.push('No Open Graph social meta tags');
 
-    return issues;
+    return { issues, socials };
 }
 
 // ──────────────────────────────────────────────
@@ -370,6 +382,8 @@ async function auditLead(lead, idx, total) {
     return {
         ...lead,
         website: url,
+        instagram: lead.instagram || fast.socials.instagram || '',
+        facebook: lead.facebook || fast.socials.facebook || '',
         has_website: 'Yes',
         website_status: fast.status || 'Error',
         ssl: fast.ssl ? 'Yes' : 'No',
