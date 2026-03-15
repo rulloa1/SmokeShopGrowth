@@ -115,19 +115,15 @@ const assistantConfig = {
 
     // ── Voice ─────────────────────────────────────────────────────────────────
     voice: {
-        provider: "11labs",
-        voiceId: process.env.ELEVENLABS_VOICE_ID || "ErXwobaYiN019PkySvjV", // Antoni (Male Voice)
-        model: "eleven_turbo_v2_5", // lowest latency
-        stability: 0.5,
-        similarityBoost: 0.75,
+        provider: "deepgram",
+        voiceId: process.env.DEEPGRAM_VOICE_ID || "orion", // natural male voice
     },
 
     // ── Call behavior ──────────────────────────────────────────────────────────
-    silenceTimeoutSeconds: 6,
+    silenceTimeoutSeconds: 10,
     maxDurationSeconds: 90, // 90 sec max — keep calls short
     backgroundSound: "off",
     endCallMessage: "Have a great day! Goodbye.",
-    endCallOnHangup: true,
 
     // ── Interruption & Noise Settings ──────────────────────────────────────────
     backgroundDenoisingEnabled: true,

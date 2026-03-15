@@ -6,7 +6,9 @@
       "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node src/node/vapi_call.js --batch --file data/houston-tx/hot_leads.csv --dry-run 2>&1 | head -20)",
       "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node src/node/vapi_call.js --batch --file data/houston-tx/hot_leads.csv --dry-run 2>&1)",
       "Bash(ls -la /mnt/c/Users/roryu/Build\\\\ Google\\\\ Maps\\\\ Lead\\\\ Scraper/src/python/ | grep -E \"\\\\.py$\")",
-      "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node -c server.js && echo \"server.js: OK\" && node -c src/node/follow_up.js && echo \"follow_up.js: OK\" && node -c src/node/vapi_webhook.js && echo \"vapi_webhook.js: OK\" && node -c src/node/vapi_call.js && echo \"vapi_call.js: OK\" && node -c src/node/vapi_agent_setup.js && echo \"vapi_agent_setup.js: OK\" && python -c \"import py_compile; py_compile.compile\\('src/python/webhook.py', doraise=True\\)\" && echo \"webhook.py: OK\")"
+      "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node -c server.js && echo \"server.js: OK\" && node -c src/node/follow_up.js && echo \"follow_up.js: OK\" && node -c src/node/vapi_webhook.js && echo \"vapi_webhook.js: OK\" && node -c src/node/vapi_call.js && echo \"vapi_call.js: OK\" && node -c src/node/vapi_agent_setup.js && echo \"vapi_agent_setup.js: OK\" && python -c \"import py_compile; py_compile.compile\\('src/python/webhook.py', doraise=True\\)\" && echo \"webhook.py: OK\")",
+      "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node -c src/node/vapi_agent_setup.js && echo \"OK\")",
+      "Bash(cd \"/mnt/c/Users/roryu/Build Google Maps Lead Scraper\" && node src/node/vapi_agent_setup.js --update 2>&1)"
     ]
   }
 }

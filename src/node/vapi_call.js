@@ -6,12 +6,17 @@
  * Single call:
  *   node vapi_call.js --phone +17135551234 --name "Cloud 9 Smoke Shop" --city Houston
  *
- * Batch from CSV (reads data/leads_*.csv automatically):
- *   node vapi_call.js --batch
- *   node vapi_call.js --batch --file data/leads_houston.csv
- *   node vapi_call.js --batch --dry-run   ← preview only, no calls made
+ * Batch from CSV:
+ *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv
+ *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv --dry-run
  *
- * CSV must have columns: phone, title (or name), city
+ * Check status of previous calls:
+ *   node vapi_call.js --status
+ *
+ * Retry only the failed/skipped leads:
+ *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv --retry
+ *
+ * CSV must have columns: business_name (or title/name), phone
  */
 
 require("dotenv").config();
@@ -26,7 +31,7 @@ const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID;
 const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID;
 
 if (!VAPI_API_KEY || !VAPI_ASSISTANT_ID || !VAPI_PHONE_NUMBER_ID) {
-    console.error("❌ Missing required env vars: VAPI_API_KEY, VAPI_ASSISTANT_ID, VAPI_PHONE_NUMBER_ID");
+    console.error("Missing required env vars: VAPI_API_KEY, VAPI_ASSISTANT_ID, VAPI_PHONE_NUMBER_ID");
     process.exit(1);
 }
 
@@ -39,28 +44,56 @@ const vapi = axios.create({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CALL LOG — tracks every call attempt to prevent duplicates
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CALL_LOG_PATH = path.join(__dirname, "..", "..", "logs", "call_attempts.jsonl");
+
+function ensureLogDir() {
+    const dir = path.dirname(CALL_LOG_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function loadCalledPhones() {
+    ensureLogDir();
+    const called = new Map(); // phone → { name, call_id, status, ts }
+    if (!fs.existsSync(CALL_LOG_PATH)) return called;
+
+    const lines = fs.readFileSync(CALL_LOG_PATH, "utf-8").trim().split("\n").filter(Boolean);
+    for (const line of lines) {
+        try {
+            const entry = JSON.parse(line);
+            // Only count successful calls (not failed/concurrency errors)
+            if (entry.status === "ok") {
+                called.set(entry.phone, entry);
+            }
+        } catch {}
+    }
+    return called;
+}
+
+function logCallAttempt(entry) {
+    ensureLogDir();
+    fs.appendFileSync(CALL_LOG_PATH, JSON.stringify(entry) + "\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAKE A SINGLE CALL
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function makeCall({ phone, name, city, leadId, problem, rating, reviews }) {
-    // Normalize phone to E.164
-    const normalizedPhone = phone.replace(/\D/g, "");
-    const e164 = normalizedPhone.startsWith("1")
-        ? `+${normalizedPhone}`
-        : `+1${normalizedPhone}`;
+function normalizePhone(phone) {
+    const digits = phone.replace(/\D/g, "");
+    return digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
+}
 
-    // Determine the website problem for personalization
+async function makeCall({ phone, name, city, leadId, problem, rating, reviews }) {
+    const e164 = normalizePhone(phone);
     const websiteProblem = problem || "no website";
 
     const payload = {
         assistantId: VAPI_ASSISTANT_ID,
-        customer: {
-            number: e164,
-            name: name,
-        },
+        customer: { number: e164, name },
         phoneNumberId: VAPI_PHONE_NUMBER_ID,
-
-        // Pass variables into the assistant prompt
         assistantOverrides: {
             variableValues: {
                 business_name: name,
@@ -71,8 +104,6 @@ async function makeCall({ phone, name, city, leadId, problem, rating, reviews })
                 reviews: reviews || "",
             },
         },
-
-        // Metadata passed back in webhook
         metadata: {
             lead_id: leadId || "",
             business_name: name,
@@ -99,6 +130,31 @@ function getArg(flag) {
 
 const isBatch = process.argv.includes("--batch");
 const isDryRun = process.argv.includes("--dry-run");
+const isRetry = process.argv.includes("--retry");
+const isStatus = process.argv.includes("--status");
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS — show what's been called
+// ─────────────────────────────────────────────────────────────────────────────
+
+function showStatus() {
+    const called = loadCalledPhones();
+    if (called.size === 0) {
+        console.log("No calls logged yet.");
+        return;
+    }
+
+    console.log(`\n--- Call Log (${called.size} successful calls) ---\n`);
+    console.log("Phone           | Business                          | Call ID                              | Time");
+    console.log("----------------|-----------------------------------|--------------------------------------|---------------------");
+    for (const [phone, entry] of called) {
+        const name = (entry.name || "").padEnd(35).slice(0, 35);
+        const id = (entry.call_id || "").padEnd(38).slice(0, 38);
+        const ts = entry.ts ? new Date(entry.ts).toLocaleString() : "";
+        console.log(`${phone.padEnd(16)}| ${name} | ${id} | ${ts}`);
+    }
+    console.log("");
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SINGLE CALL MODE
@@ -114,20 +170,28 @@ async function singleCall() {
         process.exit(1);
     }
 
-    console.log(`📞 Calling ${name} at ${phone}...`);
+    const e164 = normalizePhone(phone);
+    const called = loadCalledPhones();
+
+    if (called.has(e164)) {
+        console.log(`SKIP: ${name} (${e164}) — already called on ${called.get(e164).ts}`);
+        return;
+    }
+
+    console.log(`Calling ${name} at ${e164}...`);
 
     if (isDryRun) {
-        console.log("🔍 DRY RUN — no call made");
-        console.log({ phone, name, city });
+        console.log("DRY RUN — no call made");
         return;
     }
 
     try {
         const call = await makeCall({ phone, name, city });
-        console.log(`✅ Call initiated: ${call.id}`);
-        console.log(`   Status: ${call.status}`);
+        console.log(`Call initiated: ${call.id}`);
+        logCallAttempt({ phone: e164, name, call_id: call.id, status: "ok", ts: new Date().toISOString() });
     } catch (err) {
-        console.error("❌ Call failed:", err.response?.data || err.message);
+        console.error("Call failed:", err.response?.data || err.message);
+        logCallAttempt({ phone: e164, name, call_id: null, status: "error", error: err.response?.data?.message || err.message, ts: new Date().toISOString() });
     }
 }
 
@@ -146,30 +210,16 @@ async function readCSV(filePath) {
     });
 }
 
-function findLeadsFile() {
-    const dataDir = path.join(__dirname, "data");
-    if (!fs.existsSync(dataDir)) return null;
-    const files = fs.readdirSync(dataDir).filter((f) => f.endsWith(".csv"));
-    if (!files.length) return null;
-    // Prefer most recently modified
-    files.sort((a, b) => {
-        const statA = fs.statSync(path.join(dataDir, a)).mtimeMs;
-        const statB = fs.statSync(path.join(dataDir, b)).mtimeMs;
-        return statB - statA;
-    });
-    return path.join(dataDir, files[0]);
-}
-
 async function batchCall() {
     const customFile = getArg("--file");
-    const file = customFile || findLeadsFile();
+    const file = customFile;
 
     if (!file || !fs.existsSync(file)) {
-        console.error("❌ No CSV file found. Use --file path/to/leads.csv or place a CSV in data/");
+        console.error("No CSV file found. Use --file path/to/leads.csv");
         process.exit(1);
     }
 
-    console.log(`📂 Loading leads from: ${file}`);
+    console.log(`Loading leads from: ${file}`);
     const leads = await readCSV(file);
 
     // Filter leads that have a phone number
@@ -178,30 +228,52 @@ async function batchCall() {
         return phone && phone.replace(/\D/g, "").length >= 10;
     });
 
-    console.log(`📋 ${callable.length} callable leads (out of ${leads.length} total)`);
+    // Load already-called phones to skip duplicates
+    const calledPhones = loadCalledPhones();
+    const fresh = callable.filter((r) => {
+        const phone = r.phone || r.Phone || r.telephone;
+        const e164 = normalizePhone(phone);
+        return !calledPhones.has(e164);
+    });
+
+    const skipped = callable.length - fresh.length;
+
+    console.log(`${callable.length} callable leads total`);
+    if (skipped > 0) {
+        console.log(`${skipped} already called — skipping`);
+    }
+    console.log(`${fresh.length} new leads to call`);
+
+    if (fresh.length === 0) {
+        console.log("\nAll leads have already been called. Nothing to do.");
+        return;
+    }
 
     if (isDryRun) {
-        console.log("\n🔍 DRY RUN — first 10 leads:");
-        callable.slice(0, 10).forEach((r, i) => {
+        console.log("\nDRY RUN — first 10 new leads:");
+        fresh.slice(0, 10).forEach((r, i) => {
             const name = r.business_name || r.title || r.name || r.Name || "Unknown";
             const phone = r.phone || r.Phone;
             const city = r.city || r.City || "Houston";
             const reason = r.reason || "No website";
             console.log(`  ${i + 1}. ${name} — ${phone} — ${city} — ${reason}`);
         });
-        console.log(`\n  ... ${callable.length} total leads ready to call`);
+        if (fresh.length > 10) console.log(`  ... and ${fresh.length - 10} more`);
         return;
     }
 
-    // Delay between calls to avoid hammering (2s gap)
-    const DELAY_MS = 2000;
+    // Delay between calls — 10s to avoid concurrency limits
+    const DELAY_MS = parseInt(getArg("--delay") || "10000", 10);
     let succeeded = 0;
     let failed = 0;
 
-    for (let i = 0; i < callable.length; i++) {
-        const row = callable[i];
+    console.log(`\nStarting calls (${DELAY_MS / 1000}s delay between each)...\n`);
+
+    for (let i = 0; i < fresh.length; i++) {
+        const row = fresh[i];
         const name = row.business_name || row.title || row.name || row.Name || "Unknown Shop";
         const phone = row.phone || row.Phone || row.telephone;
+        const e164 = normalizePhone(phone);
         const city = row.city || row.City || "Houston";
         const leadId = row.id || row.place_id || String(i);
         const rating = row.rating || row.Rating || "";
@@ -209,7 +281,6 @@ async function batchCall() {
         const website = row.website || row.Website || "";
         const reason = row.reason || "";
 
-        // Detect the website problem — use reason column if available, otherwise auto-detect
         let problem = reason || "no website";
         if (!reason && website && website.trim()) {
             const httpStatus = row.http_status || row.status_code || row.website_status || "";
@@ -222,31 +293,35 @@ async function batchCall() {
             }
         }
 
-        process.stdout.write(`[${i + 1}/${callable.length}] ${name} (${phone})... `);
+        process.stdout.write(`[${i + 1}/${fresh.length}] ${name} (${phone})... `);
 
         try {
             const call = await makeCall({ phone, name, city, leadId, problem, rating, reviews });
-            console.log(`✅ ${call.id}`);
+            console.log(`OK ${call.id}`);
+            logCallAttempt({ phone: e164, name, call_id: call.id, status: "ok", ts: new Date().toISOString() });
             succeeded++;
         } catch (err) {
             const errMsg = err.response?.data?.message || err.message;
-            console.log(`❌ ${errMsg}`);
+            console.log(`FAIL ${errMsg}`);
+            logCallAttempt({ phone: e164, name, call_id: null, status: "error", error: errMsg, ts: new Date().toISOString() });
             failed++;
         }
 
-        if (i < callable.length - 1) {
+        if (i < fresh.length - 1) {
             await new Promise((r) => setTimeout(r, DELAY_MS));
         }
     }
 
-    console.log(`\n📊 Done: ${succeeded} succeeded, ${failed} failed`);
+    console.log(`\nDone: ${succeeded} succeeded, ${failed} failed, ${skipped} skipped (already called)`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
 // ─────────────────────────────────────────────────────────────────────────────
 
-if (isBatch) {
+if (isStatus) {
+    showStatus();
+} else if (isBatch) {
     batchCall().catch(console.error);
 } else {
     singleCall().catch(console.error);
