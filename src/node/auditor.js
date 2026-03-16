@@ -138,7 +138,7 @@ async function fastAudit(url) {
  */
 function analyseHtml(html, url, ssl, loadTimeSec) {
     const issues = [];
-    const socials = { instagram: '', facebook: '' };
+    const socials = { instagram: '', facebook: '', email: '' };
 
     if (!ssl) issues.push('No SSL (HTTP only)');
     if (loadTimeSec > 4) issues.push(`Slow load time (${loadTimeSec}s)`);
@@ -148,16 +148,45 @@ function analyseHtml(html, url, ssl, loadTimeSec) {
 
     const $ = cheerio.load(html);
 
-    // Extract social links
+    // Extract social links and mailto: emails
+    const emailCandidates = [];
     $('a[href]').each((_, el) => {
-        const href = $(el).attr('href').toLowerCase();
-        if (href.includes('instagram.com/') && !socials.instagram) {
-            socials.instagram = href;
+        const href = $(el).attr('href') || '';
+        const hrefLower = href.toLowerCase();
+        if (hrefLower.includes('instagram.com/') && !socials.instagram) {
+            socials.instagram = hrefLower;
         }
-        if (href.includes('facebook.com/') && !socials.facebook) {
-            socials.facebook = href;
+        if (hrefLower.includes('facebook.com/') && !socials.facebook) {
+            socials.facebook = hrefLower;
+        }
+        // Extract mailto: links
+        const mailtoMatch = hrefLower.match(/^mailto:([^\s?]+)/);
+        if (mailtoMatch) {
+            emailCandidates.push(mailtoMatch[1].trim());
         }
     });
+
+    // Also scan page text for email patterns
+    const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const bodyText = $.text();
+    const textEmails = bodyText.match(EMAIL_RE) || [];
+    emailCandidates.push(...textEmails.map(e => e.toLowerCase()));
+
+    // Filter out false positives and pick the first valid email
+    const FAKE_DOMAINS = ['example.com', 'sentry.io', 'sentry-next.wixpress.com', 'wixpress.com', 'placeholder.com'];
+    const FAKE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+    const seen = new Set();
+    for (const raw of emailCandidates) {
+        const em = raw.toLowerCase().trim();
+        if (seen.has(em)) continue;
+        seen.add(em);
+        const domain = em.split('@')[1] || '';
+        if (FAKE_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) continue;
+        if (FAKE_EXTENSIONS.some(ext => em.endsWith(ext))) continue;
+        if (domain.startsWith('sentry')) continue;
+        socials.email = em;
+        break;
+    }
 
     // Mobile viewport
     const hasViewport = $('meta[name="viewport"]').length > 0;
@@ -382,6 +411,7 @@ async function auditLead(lead, idx, total) {
     return {
         ...lead,
         website: url,
+        email: lead.email || fast.socials.email || '',
         instagram: lead.instagram || fast.socials.instagram || '',
         facebook: lead.facebook || fast.socials.facebook || '',
         has_website: 'Yes',

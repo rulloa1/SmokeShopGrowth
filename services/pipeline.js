@@ -71,10 +71,24 @@ async function runPipeline(jobId) {
         pushLog(jobId, '⚠️  Step 3 skipped — OPENAI_API_KEY not set.', 'warn');
     }
 
-    // Step 4: Demo Video
-    if (job.generateDemo && process.env.MINIMAX_API_KEY) {
-        pushLog(jobId, '🎥 Step 4/4 — Generating Minimax demo videos…', 'step');
+    // Step 4: Demo Sites
+    if (job.generateDemo) {
+        pushLog(jobId, '🏗️  Step 4 — Generating demo sites from templates…', 'step');
         job.step = 4;
+        const demoInput = fs.existsSync(job.files.outreach) ? job.files.outreach : job.files.socialAudited;
+        await runChild(jobId, 'node', [
+            path.join(__dirname, '..', 'src', 'node', 'generate-from-templates.js'),
+            '--input', demoInput,
+            '--output', job.files.demos || path.join('public', 'demos'),
+        ]);
+        pushLog(jobId, '✅ Demo sites generated.', 'success');
+    } else {
+        pushLog(jobId, '⏩ Step 4 skipped — Demo generation turned off.', 'log');
+    }
+
+    // Step 4b: Demo Video (Minimax)
+    if (job.generateDemo && process.env.MINIMAX_API_KEY) {
+        pushLog(jobId, '🎥 Step 4b — Generating Minimax demo videos…', 'step');
         await runChild(jobId, 'node', [
             path.join(__dirname, '..', 'src', 'node', 'generate_demo.js'),
             '--input', fs.existsSync(job.files.outreach) ? job.files.outreach : job.files.socialAudited,
@@ -83,14 +97,30 @@ async function runPipeline(jobId) {
         ]);
 
         const demoCount = await countCsvRows(job.files.demo);
-        pushLog(jobId, `✅ Generated demo video entries  (${demoCount} leads processed).`, 'success');
+        pushLog(jobId, `✅ Generated demo video entries (${demoCount} leads processed).`, 'success');
     } else if (job.generateDemo && !process.env.MINIMAX_API_KEY) {
-        pushLog(jobId, '⚠️  Step 4 skipped — MINIMAX_API_KEY not set.', 'warn');
-    } else {
-        pushLog(jobId, '⏩ Step 4 skipped — Demo generation turned off.', 'log');
+        pushLog(jobId, '⚠️  Step 4b skipped — MINIMAX_API_KEY not set.', 'warn');
     }
 
-    // Step 5: Export to Google Sheets
+    // Step 5: Send Emails
+    const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+    const emailInput = fs.existsSync(job.files.outreach) ? job.files.outreach : null;
+    if (smtpConfigured && emailInput) {
+        pushLog(jobId, '📧 Step 5 — Sending outreach emails…', 'step');
+        job.step = 5;
+        await runChild(jobId, 'node', [
+            path.join(__dirname, '..', 'src', 'node', 'send_emails.js'),
+            '--input', emailInput,
+            '--log', job.files.emailLog,
+        ]);
+        pushLog(jobId, '✅ Emails sent.', 'success');
+    } else if (!smtpConfigured) {
+        pushLog(jobId, '⚠️  Step 5 skipped — SMTP env vars not configured (SMTP_HOST, SMTP_USER, SMTP_PASS).', 'warn');
+    } else {
+        pushLog(jobId, '⚠️  Step 5 skipped — No outreach CSV available.', 'warn');
+    }
+
+    // Step 6: Export to Google Sheets
     if (job.exportSheets && job.sheetsId) {
         pushLog(jobId, '📊 Exporting to Google Sheets…', 'step');
         try {
@@ -108,7 +138,7 @@ async function runPipeline(jobId) {
     }
 
     job.status = 'done';
-    job.step = 5;
+    job.step = 7;
     pushLog(jobId, '🎉 Pipeline complete!', 'success');
     broadcast(jobId, { type: 'done', status: 'done', files: job.files });
 

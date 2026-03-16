@@ -8,9 +8,11 @@ const n8nService = require('../src/node/n8n_service');
 const { jobs, makeJobId, pushLog, broadcast } = require('../services/sse');
 const { runPipeline } = require('../services/pipeline');
 const { webhookLimiter } = require('../middleware/rate-limit');
+const { apiKeyAuth } = require('../middleware/auth');
+const db = require('../src/node/db');
 
-// POST /api/run — start a pipeline job
-router.post('/api/run', (req, res) => {
+// POST /api/run — start a pipeline job (requires auth)
+router.post('/api/run', apiKeyAuth, (req, res) => {
     let {
         city = '',
         bizType = 'smoke shop',
@@ -44,9 +46,19 @@ router.post('/api/run', (req, res) => {
         audited: path.join(dataDir, 'audited_leads.csv'),
         socialAudited: path.join(dataDir, 'social_audited.csv'),
         outreach: path.join(dataDir, 'outreach_messages.csv'),
+        demos: path.join('public', 'demos', citySlug),
         demo: path.join(dataDir, 'demo_leads.csv'),
         emailLog: path.join('logs', 'email_log.csv'),
     };
+
+    // Persist job to DB (Fix #10)
+    try {
+        db.insertJob.run({
+            id: jobId, city, biz_type: bizType, status: 'running', step: 0,
+            config: JSON.stringify({ maxResults, skipLighthouse, generateDemo, exportSheets, sheetsId }),
+            files: JSON.stringify(files),
+        });
+    } catch (e) { /* ignore dup */ }
 
     jobs.set(jobId, {
         status: 'running',

@@ -17,10 +17,9 @@
  *   --max-results N       Max scrape results (default: 200)
  *   --concurrency N       Auditor concurrency (default: 5)
  *   --skip-lighthouse     Skip Lighthouse in auditor (faster)
- *   --skip-email          Don't send emails (stops after outreach CSV)
- *   --send-email          Enable actual email sending (requires SMTP env vars)
+ *   --skip-email          Don't send emails (default: emails are ON)
  *   --headless            Run scraper headless
- *   --from-step N         Resume from step N (1=scrape, 2=audit, 3=outreach, 4=email)
+ *   --from-step N         Resume from step N (1=scrape, 2=audit, 3=social-audit, 4=outreach, 5=demos, 6=email)
  */
 
 'use strict';
@@ -42,7 +41,7 @@ const BIZ_TYPE = getArg('--type', 'smoke shop');
 const MAX_RESULTS = getArg('--max-results', '200');
 const CONCURRENCY = getArg('--concurrency', '5');
 const FROM_STEP = parseInt(getArg('--from-step', '1'), 10);
-const SKIP_EMAIL = !hasFlag('--send-email');
+const SKIP_EMAIL = hasFlag('--skip-email');
 const HEADLESS = hasFlag('--headless') ? '--headless' : '';
 const SKIP_LH = hasFlag('--skip-lighthouse') ? '--skip-lighthouse' : '';
 
@@ -60,7 +59,9 @@ const DATA_DIR = path.join('data', citySlug);
 const LOGS_DIR = 'logs';
 const LEADS_CSV = path.join(DATA_DIR, 'leads.csv');
 const AUDITED_CSV = path.join(DATA_DIR, 'audited_leads.csv');
+const SOCIAL_AUDITED_CSV = path.join(DATA_DIR, 'social_audited.csv');
 const OUTREACH_CSV = path.join(DATA_DIR, 'outreach_messages.csv');
+const DEMOS_DIR = path.join('public', 'demos', citySlug);
 const EMAIL_LOG = path.join(LOGS_DIR, 'email_log.csv');
 const PIPELINE_LOG = path.join(LOGS_DIR, `pipeline_${citySlug}_${datestamp()}.log`);
 
@@ -149,30 +150,62 @@ async function step2_audit() {
     await runProcess('node', auditorArgs, 'Website Auditor');
 }
 
-async function step3_outreach() {
-    banner('STEP 3 — Generate AI Outreach Messages');
+async function step3_socialAudit() {
+    banner('STEP 3 — Social Audit');
     if (!fs.existsSync(AUDITED_CSV)) {
         throw new Error(`Audited leads file not found: ${AUDITED_CSV}. Run step 2 first.`);
+    }
+    await runProcess('node', [
+        'social_audit.js',
+        '--input', AUDITED_CSV,
+        '--output', SOCIAL_AUDITED_CSV,
+    ], 'Social Auditor');
+}
+
+async function step4_outreach() {
+    banner('STEP 4 — Generate AI Outreach Messages');
+    const inputCsv = fs.existsSync(SOCIAL_AUDITED_CSV) ? SOCIAL_AUDITED_CSV : AUDITED_CSV;
+    if (!fs.existsSync(inputCsv)) {
+        throw new Error(`Input file not found: ${inputCsv}. Run previous steps first.`);
     }
     if (!process.env.OPENAI_API_KEY) {
         throw new Error('OPENAI_API_KEY is not set. Export it before running this step.');
     }
     await runProcess('node', [
         'generate_outreach.js',
-        '--input', AUDITED_CSV,
+        '--input', inputCsv,
         '--output', OUTREACH_CSV,
     ], 'Outreach Generator');
 }
 
-async function step4_email() {
-    banner('STEP 4 — Send Emails');
+async function step5_demos() {
+    banner('STEP 5 — Generate Demo Sites');
+    const inputCsv = fs.existsSync(OUTREACH_CSV) ? OUTREACH_CSV :
+                     fs.existsSync(SOCIAL_AUDITED_CSV) ? SOCIAL_AUDITED_CSV : AUDITED_CSV;
+    if (!fs.existsSync(inputCsv)) {
+        throw new Error(`Input file not found for demo generation. Run previous steps first.`);
+    }
+    await runProcess('node', [
+        path.join('src', 'node', 'generate-from-templates.js'),
+        '--input', inputCsv,
+        '--output', DEMOS_DIR,
+    ], 'Demo Site Generator');
+}
+
+async function step6_email() {
+    banner('STEP 6 — Send Emails');
     if (SKIP_EMAIL) {
-        log('Email sending is disabled (pass --send-email to enable).', 'SKIP');
+        log('Email sending is disabled (pass --skip-email to remove, it is on by default).', 'SKIP');
         log(`Outreach messages ready at: ${OUTREACH_CSV}`);
         return;
     }
+    const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+    if (!smtpConfigured) {
+        log('SMTP env vars not set (SMTP_HOST, SMTP_USER, SMTP_PASS). Skipping email.', 'WARN');
+        return;
+    }
     if (!fs.existsSync(OUTREACH_CSV)) {
-        throw new Error(`Outreach CSV not found: ${OUTREACH_CSV}. Run step 3 first.`);
+        throw new Error(`Outreach CSV not found: ${OUTREACH_CSV}. Run step 4 first.`);
     }
     await runProcess('node', [
         'send_emails.js',
@@ -194,7 +227,9 @@ function printSummary(results) {
     log(`Data directory : ${DATA_DIR}`);
     log(`Leads          : ${LEADS_CSV}`);
     log(`Audited        : ${AUDITED_CSV}`);
+    log(`Social audited : ${SOCIAL_AUDITED_CSV}`);
     log(`Outreach msgs  : ${OUTREACH_CSV}`);
+    log(`Demo sites     : ${DEMOS_DIR}`);
     if (!SKIP_EMAIL) log(`Email log      : ${EMAIL_LOG}`);
     log(`Pipeline log   : ${PIPELINE_LOG}`);
 }
@@ -213,8 +248,10 @@ async function main() {
     const steps = [
         { step: 1, label: 'Scrape Google Maps', fn: step1_scrape },
         { step: 2, label: 'Audit Websites', fn: step2_audit },
-        { step: 3, label: 'Generate Outreach', fn: step3_outreach },
-        { step: 4, label: 'Send Emails', fn: step4_email },
+        { step: 3, label: 'Social Audit', fn: step3_socialAudit },
+        { step: 4, label: 'Generate Outreach', fn: step4_outreach },
+        { step: 5, label: 'Generate Demo Sites', fn: step5_demos },
+        { step: 6, label: 'Send Emails', fn: step6_email },
     ];
 
     const results = [];
