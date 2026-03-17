@@ -29,7 +29,9 @@
         "lint": "eslint src/node/ && python -m ruff check src/python/ src/agents/"
     },
     "dependencies": {
+        "@playwright/test": "^1.58.2",
         "axios": "^1.6.8",
+        "better-sqlite3": "^12.8.0",
         "cheerio": "^1.0.0-rc.12",
         "chrome-launcher": "^1.1.2",
         "concurrently": "^9.2.1",
@@ -40,12 +42,12 @@
         "express-rate-limit": "^7.5.1",
         "fast-csv": "^5.0.1",
         "googleapis": "^171.4.0",
-        "lighthouse": "^12.0.0",
-        "ngrok": "^5.0.0-beta.2",
-        "nodemailer": "^6.10.1",
+        "lighthouse": "^10.1.1",
+        "ngrok": "^4.2.2",
+        "nodemailer": "^8.0.2",
         "openai": "^4.104.0",
         "p-limit": "^3.1.0",
-        "puppeteer": "^24.38.0",
+        "puppeteer": "^19.8.0",
         "puppeteer-extra": "^3.3.6",
         "puppeteer-extra-plugin-stealth": "^2.11.2"
     }

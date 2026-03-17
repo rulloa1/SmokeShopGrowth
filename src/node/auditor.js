@@ -85,6 +85,9 @@ function log(msg) {
     console.log(`[${ts}] ${msg}`);
 }
 
+// Audit result cache — keyed by normalized URL
+const auditCache = new Map();
+
 // ──────────────────────────────────────────────
 // Phase 1 — fast HTTP + Cheerio audit
 // ──────────────────────────────────────────────
@@ -365,6 +368,25 @@ async function auditLead(lead, idx, total) {
 
     }
 
+    // Check cache for repeated URLs
+    if (auditCache.has(url)) {
+        log(`${label} → ${url} (cached)`);
+        const cached = auditCache.get(url);
+        return {
+            ...lead,
+            website: cached.website,
+            email: lead.email || cached.email || '',
+            instagram: lead.instagram || cached.instagram || '',
+            facebook: lead.facebook || cached.facebook || '',
+            has_website: cached.has_website,
+            website_status: cached.website_status,
+            ssl: cached.ssl,
+            load_time: cached.load_time,
+            mobile_friendly: cached.mobile_friendly,
+            audit_summary: cached.audit_summary,
+        };
+    }
+
     log(`${label} → ${url}`);
 
     // Fast HTTP + Cheerio check
@@ -408,7 +430,7 @@ async function auditLead(lead, idx, total) {
         `mobile=${mobileFriendly} issues=${issues.length}`
     );
 
-    return {
+    const result = {
         ...lead,
         website: url,
         email: lead.email || fast.socials.email || '',
@@ -421,6 +443,22 @@ async function auditLead(lead, idx, total) {
         mobile_friendly: mobileFriendly ? 'Yes' : 'No',
         audit_summary: summary,
     };
+
+    // Cache the result for future repeats
+    auditCache.set(url, {
+        website: url,
+        email: result.email,
+        instagram: result.instagram,
+        facebook: result.facebook,
+        has_website: result.has_website,
+        website_status: result.website_status,
+        ssl: result.ssl,
+        load_time: result.load_time,
+        mobile_friendly: result.mobile_friendly,
+        audit_summary: result.audit_summary,
+    });
+
+    return result;
 }
 
 

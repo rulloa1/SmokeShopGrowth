@@ -7,12 +7,12 @@ const csv = require('csv-parser');
 const n8nService = require('../src/node/n8n_service');
 const { jobs, makeJobId, pushLog, broadcast } = require('../services/sse');
 const { runPipeline } = require('../services/pipeline');
-const { webhookLimiter } = require('../middleware/rate-limit');
+const { webhookLimiter, pipelineRunLimiter } = require('../middleware/rate-limit');
 const { apiKeyAuth } = require('../middleware/auth');
 const db = require('../src/node/db');
 
 // POST /api/run — start a pipeline job (requires auth)
-router.post('/api/run', apiKeyAuth, (req, res) => {
+router.post('/api/run', pipelineRunLimiter, apiKeyAuth, (req, res) => {
     let {
         city = '',
         bizType = 'smoke shop',
@@ -23,8 +23,14 @@ router.post('/api/run', apiKeyAuth, (req, res) => {
         sheetsId = '',
     } = req.body;
 
-    if (!city.trim()) {
-        return res.status(400).json({ error: 'City is required.' });
+    // Validate city: 2-50 chars, alphanumeric + spaces and hyphens
+    city = city.trim();
+    const MIN_CITY_LEN = 2, MAX_CITY_LEN = 50;
+    if (!city || city.length < MIN_CITY_LEN || city.length > MAX_CITY_LEN) {
+        return res.status(400).json({ error: `City must be ${MIN_CITY_LEN}-${MAX_CITY_LEN} characters.` });
+    }
+    if (!/^[a-zA-Z0-9\s\-]+$/.test(city)) {
+        return res.status(400).json({ error: 'City contains invalid characters (only letters, numbers, spaces, hyphens allowed).' });
     }
 
     if (typeof bizType !== 'string' || bizType.length > 100) {
@@ -76,9 +82,12 @@ router.post('/api/run', apiKeyAuth, (req, res) => {
     runPipeline(jobId).catch(err => {
         const job = jobs.get(jobId);
         if (job) {
-            pushLog(jobId, `[ERROR] ${err.message}`, 'error');
+            const errorDetails = `${err.message}\n${err.stack || ''}`;
+            console.error('[PIPELINE ERROR]', err.stack || err);
+            pushLog(jobId, `[ERROR] ${errorDetails}`, 'error');
             job.status = 'failed';
-            broadcast(jobId, { type: 'done', status: 'failed' });
+            job.error = err.message;
+            broadcast(jobId, { type: 'done', status: 'failed', error: err.message });
         }
     });
 
@@ -174,16 +183,12 @@ router.get('/api/leads', (req, res) => {
         const csvPath = path.join(__dirname, '..', 'data', 'submissions.csv');
         if (!fs.existsSync(csvPath)) return res.json({ leads: [] });
 
-        const content = fs.readFileSync(csvPath, 'utf8');
-        const lines = content.trim().split('\n');
-        const headers = lines[0].split(',');
-        const leads = lines.slice(1).map(line => {
-            const values = line.split(',');
-            const lead = {};
-            headers.forEach((h, i) => lead[h.toLowerCase().replace(/ /g, '_')] = values[i] || '');
-            return lead;
-        });
-        res.json({ leads });
+        const leads = [];
+        fs.createReadStream(csvPath)
+            .pipe(csv())
+            .on('data', (row) => leads.push(row))
+            .on('end', () => res.json({ leads }))
+            .on('error', (err) => res.status(500).json({ error: 'Failed to parse CSV' }));
     } catch (err) {
         res.status(500).json({ error: 'Failed to read leads' });
     }

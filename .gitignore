@@ -68,3 +68,7 @@ demo.html
 # Misc
 push_error.txt
 *.bak
+
+# SQLite temporary files
+*.db-shm
+*.db-wal

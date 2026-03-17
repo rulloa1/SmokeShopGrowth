@@ -19,8 +19,12 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// JSON body parser (applied globally, Stripe webhook overrides per-route)
-app.use(express.json());
+// Fix #4: Stripe webhook needs raw body for signature verification.
+// Apply express.json() to all routes EXCEPT /webhook/stripe.
+app.use((req, res, next) => {
+    if (req.originalUrl === '/webhook/stripe') return next();
+    express.json()(req, res, next);
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));

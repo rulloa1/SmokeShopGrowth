@@ -26,6 +26,8 @@ require('dotenv').config();
 const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
+const { log, sleep } = require('./utils/logger');
+const { readCsv, writeCsv, escapeCSV } = require('./utils/csv');
 
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
@@ -51,6 +53,7 @@ const CSV_FIELDS = [
   'business_name',
   'address',
   'phone',
+  'email',
   'website',
   'rating',
   'review_count',
@@ -67,24 +70,16 @@ const CSV_FIELDS = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function escapeCSV(value) {
-  const str = String(value || '');
-  return `"${str.replace(/"/g, '""')}"`;
-}
-
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { city: '', bizType: 'smoke shop', output: 'leads.csv', maxResults: 200 };
+  const opts = { city: '', bizType: 'smoke shop', output: 'leads.csv', maxResults: 200, grid: false };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--city': opts.city = args[++i]; break;
       case '--type': opts.bizType = args[++i]; break;
       case '--output': opts.output = args[++i]; break;
       case '--max': opts.maxResults = parseInt(args[++i], 10); break;
+      case '--grid': opts.grid = true; break;
     }
   }
   if (!opts.city) {
@@ -94,35 +89,17 @@ function parseArgs() {
   return opts;
 }
 
-// ─── CSV Load/Save ───────────────────────────────────────
-function loadExisting(filePath) {
-  const rows = [];
+// ─── CSV Load/Save using shared utils ────────────────────
+async function loadExisting(filePath) {
   const seenIds = new Set();
-  if (!fs.existsSync(filePath)) return { rows, seenIds };
-
-  const raw = fs.readFileSync(filePath, 'utf-8').trim();
-  if (!raw) return { rows, seenIds };
-
-  const lines = raw.split('\n');
-  const headers = lines[0].split(',').map((h) => h.replace(/"/g, '').trim());
-
-  for (let i = 1; i < lines.length; i++) {
-    let inQuote = false;
-    let val = '';
-    const vals = [];
-    for (const ch of lines[i]) {
-      if (ch === '"') { inQuote = !inQuote; }
-      else if (ch === ',' && !inQuote) { vals.push(val.trim()); val = ''; }
-      else { val += ch; }
-    }
-    vals.push(val.trim());
-    const row = {};
-    headers.forEach((h, idx) => { row[h] = vals[idx] || ''; });
-    if (row.place_id) seenIds.add(row.place_id);
-    rows.push(row);
+  let rows = [];
+  try {
+    rows = await readCsv(filePath);
+    rows.forEach(r => { if (r.place_id) seenIds.add(r.place_id); });
+    log(`📂 Loaded ${rows.length} existing records from ${filePath}`);
+  } catch {
+    // File doesn't exist yet, that's fine
   }
-
-  console.log(`📂 Loaded ${rows.length} existing records from ${filePath}`);
   return { rows, seenIds };
 }
 
@@ -131,7 +108,7 @@ function saveCSV(filePath, results) {
   const header = CSV_FIELDS.map(escapeCSV).join(',');
   const lines = results.map((r) => CSV_FIELDS.map((f) => escapeCSV(r[f])).join(','));
   fs.writeFileSync(filePath, [header, ...lines].join('\n'), 'utf-8');
-  console.log(`💾 Saved ${results.length} records to ${filePath}`);
+  log(`💾 Saved ${results.length} records to ${filePath}`);
 }
 
 // ─── Places API ──────────────────────────────────────────
@@ -161,6 +138,70 @@ async function searchPlaces(query, location) {
   return results;
 }
 
+/**
+ * Fix #14 — Grid-based Nearby Search for more results.
+ * Divides the city area into a grid and runs Nearby Search on each cell.
+ */
+async function searchPlacesGrid(query, location) {
+  // First, geocode the city to get center coordinates
+  const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(location)}&key=${API_KEY}`;
+  const geoResp = await axios.get(geoUrl);
+  const geoResult = geoResp.data.results?.[0];
+  if (!geoResult) {
+    log('⚠️  Could not geocode city, falling back to text search');
+    return searchPlaces(query, location);
+  }
+
+  const { lat, lng } = geoResult.geometry.location;
+  const viewport = geoResult.geometry.viewport;
+
+  // Calculate grid from viewport
+  const latSpan = viewport.northeast.lat - viewport.southwest.lat;
+  const lngSpan = viewport.northeast.lng - viewport.southwest.lng;
+
+  // 3x3 grid = 9 searches × 60 results = up to 540 unique results
+  const gridSize = 3;
+  const radius = Math.max(2000, Math.round((latSpan * 111000) / gridSize / 2));
+  const results = [];
+  const seenIds = new Set();
+
+  for (let row = 0; row < gridSize; row++) {
+    for (let col = 0; col < gridSize; col++) {
+      const cellLat = viewport.southwest.lat + (latSpan / gridSize) * (row + 0.5);
+      const cellLng = viewport.southwest.lng + (lngSpan / gridSize) * (col + 0.5);
+
+      log(`  Grid cell [${row},${col}] @ ${cellLat.toFixed(4)},${cellLng.toFixed(4)} r=${radius}m`);
+
+      let nextPageToken = null;
+      do {
+        const url = nextPageToken
+          ? `https://maps.googleapis.com/maps/api/place/nearbysearch/json?pagetoken=${nextPageToken}&key=${API_KEY}`
+          : `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${cellLat},${cellLng}&radius=${radius}&keyword=${encodeURIComponent(query)}&key=${API_KEY}`;
+
+        const response = await axios.get(url);
+        const data = response.data;
+
+        if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') break;
+
+        for (const place of (data.results || [])) {
+          if (!seenIds.has(place.place_id)) {
+            seenIds.add(place.place_id);
+            results.push(place);
+          }
+        }
+
+        nextPageToken = data.next_page_token;
+        if (nextPageToken) await sleep(2000);
+      } while (nextPageToken);
+
+      await sleep(300);
+    }
+  }
+
+  log(`📍 Grid search found ${results.length} unique results across ${gridSize * gridSize} cells`);
+  return results;
+}
+
 async function getPlaceDetails(placeId) {
   try {
     const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${DETAIL_FIELDS}&key=${API_KEY}`;
@@ -172,10 +213,15 @@ async function getPlaceDetails(placeId) {
   }
 }
 
+/**
+ * Fix #1 — Return a proxied photo URL instead of exposing the API key.
+ * Falls back to a placeholder if no photos.
+ */
 function getPhotoUrl(photos) {
   if (!photos || !photos.length) return '';
   const ref = photos[0].photo_reference;
-  return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ref}&key=${API_KEY}`;
+  // Return reference only — server can proxy at /api/photo?ref=...
+  return `photo_ref:${ref}`;
 }
 
 // ─── Website Speed Check ─────────────────────────────────
@@ -189,18 +235,41 @@ async function checkWebsiteSpeed(url) {
   }
 }
 
-// ─── SEO Audit ───────────────────────────────────────────
+// ─── SEO Audit + Email Discovery (#11) ───────────────────
 async function auditSEO(url) {
   try {
     const { data: html } = await axios.get(url, { timeout: 5000, maxRedirects: 3 });
     const $ = cheerio.load(html);
+
+    // Extract emails from mailto: links and page text
+    const emails = new Set();
+    $('a[href^="mailto:"]').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      const addr = href.replace(/^mailto:/i, '').split('?')[0].trim().toLowerCase();
+      if (addr && addr.includes('@')) emails.add(addr);
+    });
+
+    // Scan visible text for email patterns
+    const bodyText = $('body').text() || '';
+    const emailRegex = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
+    const textEmails = bodyText.match(emailRegex) || [];
+    textEmails.forEach(e => emails.add(e.toLowerCase()));
+
+    // Filter out common false positives
+    const filtered = [...emails].filter(e =>
+      !e.endsWith('.png') && !e.endsWith('.jpg') && !e.endsWith('.gif') &&
+      !e.includes('example.com') && !e.includes('wixpress.com') &&
+      !e.includes('sentry.io') && !e.includes('wordpress.com')
+    );
+
     return {
       title: $('title').text().trim(),
       description: $('meta[name="description"]').attr('content') || '',
       h1: $('h1').first().text().trim(),
+      email: filtered[0] || '',
     };
   } catch {
-    return { title: '', description: '', h1: '' };
+    return { title: '', description: '', h1: '', email: '' };
   }
 }
 
@@ -209,12 +278,10 @@ function scoreLead(biz) {
   let score = 0;
   const issues = [];
 
-  // No website — hottest prospect
   if (!biz.website) {
     score += 30;
     issues.push('No website');
   } else {
-    // Website speed
     const speed = parseInt(biz.speed_ms, 10) || 0;
     if (speed > 4000) {
       score += 20;
@@ -224,40 +291,18 @@ function scoreLead(biz) {
       issues.push(`Moderate speed (${(speed / 1000).toFixed(1)}s)`);
     }
 
-    // SEO issues
-    if (biz.has_title === 'no') {
-      score += 15;
-      issues.push('Missing title tag');
-    }
-    if (biz.has_meta_desc === 'no') {
-      score += 10;
-      issues.push('Missing meta description');
-    }
-    if (biz.has_h1 === 'no') {
-      score += 10;
-      issues.push('Missing H1 tag');
-    }
+    if (biz.has_title === 'no') { score += 15; issues.push('Missing title tag'); }
+    if (biz.has_meta_desc === 'no') { score += 10; issues.push('Missing meta description'); }
+    if (biz.has_h1 === 'no') { score += 10; issues.push('Missing H1 tag'); }
   }
 
-  // Rating
   const rating = parseFloat(biz.rating) || 0;
-  if (rating > 0 && rating < 3.5) {
-    score += 15;
-    issues.push(`Low rating (${rating})`);
-  } else if (rating > 0 && rating < 4.0) {
-    score += 10;
-    issues.push(`Below-average rating (${rating})`);
-  }
+  if (rating > 0 && rating < 3.5) { score += 15; issues.push(`Low rating (${rating})`); }
+  else if (rating > 0 && rating < 4.0) { score += 10; issues.push(`Below-average rating (${rating})`); }
 
-  // Reviews
   const reviews = parseInt(biz.review_count, 10) || 0;
-  if (reviews < 20) {
-    score += 15;
-    issues.push(`Only ${reviews} reviews`);
-  } else if (reviews < 50) {
-    score += 10;
-    issues.push(`Low reviews (${reviews})`);
-  }
+  if (reviews < 20) { score += 15; issues.push(`Only ${reviews} reviews`); }
+  else if (reviews < 50) { score += 10; issues.push(`Low reviews (${reviews})`); }
 
   return { score, issues: issues.join('; ') };
 }
@@ -271,26 +316,29 @@ async function main() {
   console.log(`  City   : ${opts.city}`);
   console.log(`  Type   : ${opts.bizType}`);
   console.log(`  Max    : ${opts.maxResults}`);
+  console.log(`  Grid   : ${opts.grid ? 'enabled (Nearby Search)' : 'disabled (Text Search)'}`);
   console.log(`  Output : ${opts.output}`);
   console.log('═'.repeat(60));
 
-  const { rows: existingRows, seenIds } = loadExisting(opts.output);
+  const { rows: existingRows, seenIds } = await loadExisting(opts.output);
   const results = [...existingRows];
   const startTime = Date.now();
 
-  // Phase 1: Text Search
-  console.log(`\n🔍 Searching: "${opts.bizType}" in ${opts.city}...`);
-  const places = await searchPlaces(opts.bizType, opts.city);
-  console.log(`📋 Found ${places.length} results from Text Search API`);
+  // Phase 1: Search (Text Search or Grid-based Nearby Search)
+  log(`\n🔍 Searching: "${opts.bizType}" in ${opts.city}...`);
+  const places = opts.grid
+    ? await searchPlacesGrid(opts.bizType, opts.city)
+    : await searchPlaces(opts.bizType, opts.city);
+  log(`📋 Found ${places.length} results from ${opts.grid ? 'Grid Nearby' : 'Text'} Search API`);
 
   const newPlaces = places.filter((p) => !seenIds.has(p.place_id));
   const budget = Math.min(newPlaces.length, Math.max(0, opts.maxResults - existingRows.length));
   const toProcess = newPlaces.slice(0, budget);
 
-  console.log(`🆕 ${toProcess.length} new businesses to process\n`);
+  log(`🆕 ${toProcess.length} new businesses to process (${existingRows.length} already scraped)\n`);
 
   if (!toProcess.length) {
-    console.log('⚠️  No new listings. Exiting.');
+    log('⚠️  No new listings. Exiting.');
     return;
   }
 
@@ -307,6 +355,7 @@ async function main() {
         business_name: details.name || place.name || '',
         address: details.formatted_address || place.formatted_address || '',
         phone: details.formatted_phone_number || '',
+        email: '',
         website: details.website || '',
         rating: String(details.rating || place.rating || ''),
         review_count: String(details.user_ratings_total || ''),
@@ -322,18 +371,17 @@ async function main() {
         issues: '',
       };
 
-      // Website audit (if they have a website)
+      // Website audit + email discovery
       if (biz.website) {
-        // Speed check
         const speed = await checkWebsiteSpeed(biz.website);
         biz.speed_ms = String(speed);
 
-        // SEO audit (reuse the response if speed was OK)
         if (speed < 9999) {
           const seo = await auditSEO(biz.website);
           biz.has_title = seo.title ? 'yes' : 'no';
           biz.has_meta_desc = seo.description ? 'yes' : 'no';
           biz.has_h1 = seo.h1 ? 'yes' : 'no';
+          biz.email = seo.email || '';
         } else {
           biz.has_title = 'no';
           biz.has_meta_desc = 'no';
@@ -341,7 +389,6 @@ async function main() {
         }
       }
 
-      // Score the lead
       const { score, issues } = scoreLead(biz);
       biz.score = String(score);
       biz.issues = issues;
@@ -351,25 +398,31 @@ async function main() {
 
       const icon = score >= 50 ? '🔥' : score >= 30 ? '⚡' : '✓';
       if (score >= 50) hotCount++;
-      console.log(`  [${idx}/${toProcess.length}] ${icon} ${biz.business_name} | Score: ${score} | ${issues || 'clean'}`);
+      const emailTag = biz.email ? ` 📧 ${biz.email}` : '';
+      log(`  [${idx}/${toProcess.length}] ${icon} ${biz.business_name} | Score: ${score}${emailTag} | ${issues || 'clean'}`);
 
-      // Periodic save
       if (idx % 20 === 0) saveCSV(opts.output, results);
-
       await sleep(150);
     } catch (err) {
-      console.log(`  [${idx}/${toProcess.length}] ⚠️  Error: ${err.message}`);
+      log(`  [${idx}/${toProcess.length}] ⚠️  Error: ${err.message}`);
     }
   }
 
   saveCSV(opts.output, results);
 
+  const emailCount = results.filter(r => r.email).length;
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`  ✅ Done in ${elapsed}s`);
-  console.log(`  📊 Total records : ${results.length}`);
-  console.log(`  🔥 Hot prospects : ${hotCount} (score ≥ 50)`);
+  console.log(`  📊 Total records  : ${results.length}`);
+  console.log(`  🔥 Hot prospects  : ${hotCount} (score ≥ 50)`);
+  console.log(`  📧 Emails found   : ${emailCount}`);
   console.log('═'.repeat(60));
 }
 
-main().catch(console.error);
+// Export for testing
+module.exports = { scoreLead, getPhotoUrl };
+
+if (require.main === module) {
+  main().catch(console.error);
+}

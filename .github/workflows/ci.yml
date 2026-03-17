@@ -32,5 +32,7 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm ci
+      - name: Lint Node
+        run: npx eslint routes/ services/ middleware/ server.js
       - name: Run Node tests
         run: npm test

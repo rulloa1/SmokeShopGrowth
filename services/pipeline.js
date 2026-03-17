@@ -150,12 +150,19 @@ async function runPipeline(jobId) {
     });
 }
 
-function runChild(jobId, cmd, args) {
+function runChild(jobId, cmd, args, timeoutMs = 600000) {
     return new Promise((resolve, reject) => {
         const proc = spawn(cmd, args, {
             shell: false,
             env: { ...process.env, PYTHONUNBUFFERED: '1' },
         });
+
+        let timedOut = false;
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            proc.kill('SIGTERM');
+            reject(new Error(`${cmd} timeout exceeded (${timeoutMs}ms). Process killed.`));
+        }, timeoutMs);
 
         const onData = (data) => {
             String(data).split('\n').forEach(line => {
@@ -167,10 +174,15 @@ function runChild(jobId, cmd, args) {
         proc.stdout.on('data', onData);
         proc.stderr.on('data', onData);
         proc.on('close', code => {
+            clearTimeout(timeout);
+            if (timedOut) return;  // Already rejected
             if (code === 0) resolve();
             else reject(new Error(`${cmd} exited with code ${code}`));
         });
-        proc.on('error', reject);
+        proc.on('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+        });
     });
 }
 

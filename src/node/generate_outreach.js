@@ -146,7 +146,7 @@ async function generateMessage(lead, idx, total, retries = 3) {
 
             const message = completion.choices[0]?.message?.content?.trim() || '';
             log(`[${idx}/${total}] ✓ ${name}`);
-            return { business_name: name, email_message: message };
+            return { ...lead, email_message: message };
 
         } catch (err) {
             const isRateLimit = err?.status === 429 || err?.code === 'rate_limit_exceeded';
@@ -157,7 +157,7 @@ async function generateMessage(lead, idx, total, retries = 3) {
             } else {
                 log(`[${idx}/${total}] ✗ ${name} — ${err?.message || err}`);
                 return {
-                    business_name: name,
+                    ...lead,
                     email_message: `[Error generating message: ${err?.message || 'unknown error'}]`,
                 };
             }
@@ -184,9 +184,13 @@ function readCsv(filePath) {
 
 function writeCsv(filePath, rows) {
     return new Promise((resolve, reject) => {
+        if (!rows.length) { resolve(); return; }
         mkdirSync(path.dirname(filePath), { recursive: true });
         const ws = fs.createWriteStream(filePath);
-        const stream = format({ headers: ['business_name', 'email_message'] });
+        // Preserve all columns from input + add email_message
+        const allHeaders = new Set();
+        rows.forEach(r => Object.keys(r).forEach(k => allHeaders.add(k)));
+        const stream = format({ headers: Array.from(allHeaders) });
         stream.pipe(ws);
         for (const row of rows) stream.write(row);
         stream.end();

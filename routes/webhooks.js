@@ -4,11 +4,24 @@ const router = require('express').Router();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 const n8nService = require('../src/node/n8n_service');
 const { pushLog } = require('../services/sse');
 const { webhookLimiter } = require('../middleware/rate-limit');
+const { insertPayment } = require('../src/node/db');
 
 const PORT = process.env.PORT || 3000;
+
+/** Shared SMTP transporter — created once, reused across routes. */
+function getTransporter() {
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+    return nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '587', 10),
+        secure: process.env.SMTP_PORT === '465',
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+}
 
 // POST /webhook/call — Zapier webhook -> trigger ElevenLabs call
 router.post('/webhook/call', webhookLimiter, async (req, res) => {
@@ -219,6 +232,12 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
         return res.status(500).send('Stripe not configured');
     }
 
+    // Fix #3: Always require webhook signature in production
+    if (!endpointSecret && process.env.NODE_ENV === 'production') {
+        console.error('STRIPE_WEBHOOK_SECRET is required in production');
+        return res.status(500).send('Stripe webhook secret not configured');
+    }
+
     const stripe = require('stripe')(stripeKey);
     let event;
 
@@ -231,6 +250,8 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     } else {
+        // Dev mode only — signature not verified
+        console.warn('⚠️  Stripe webhook signature verification skipped (dev mode)');
         try {
             event = JSON.parse(req.body);
         } catch (err) {
@@ -254,6 +275,15 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
         console.log(`  Business: ${businessName} (${city})`);
         console.log(`  Tier: ${tier}`);
 
+        // Log to DB and JSONL
+        try {
+            insertPayment.run({
+                email, business_name: businessName, city, tier,
+                amount, stripe_session: session.id || '',
+            });
+        } catch (dbErr) {
+            console.error('DB payment log error:', dbErr.message);
+        }
         const paymentLog = {
             email, amount, businessName, city, tier, refId,
             paid_at: new Date().toISOString(),
@@ -299,15 +329,8 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
             const liveUrl = `/deployments/shop-${slug}/index.html`;
             console.log(`[DEPLOY] Site generated: ${liveUrl}`);
 
-            if (email && process.env.SMTP_USER && process.env.SMTP_PASS) {
-                const nodemailer = require('nodemailer');
-                const transporter = nodemailer.createTransport({
-                    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-                    port: parseInt(process.env.SMTP_PORT || '587', 10),
-                    secure: false,
-                    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-                });
-
+            const transporter = getTransporter();
+            if (email && transporter) {
                 const serverBase = process.env.PUBLIC_URL || process.env.DEMO_BASE_URL || `http://localhost:${PORT}`;
                 const fullUrl = serverBase + liveUrl;
 
@@ -334,14 +357,7 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
                 console.log(`[DELIVERY] Email sent to ${email} with live URL`);
             }
 
-            if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-                const nodemailer = require('nodemailer');
-                const transporter = nodemailer.createTransport({
-                    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-                    port: parseInt(process.env.SMTP_PORT || '587', 10),
-                    secure: false,
-                    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-                });
+            if (transporter) {
                 await transporter.sendMail({
                     from: `"Payment Alert" <${process.env.SMTP_USER}>`,
                     to: process.env.SMTP_USER,

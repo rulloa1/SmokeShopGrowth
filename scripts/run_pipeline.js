@@ -125,7 +125,7 @@ function runProcess(cmd, args, label) {
 async function step1_scrape() {
     banner('STEP 1 — Scrape Google Maps');
     const scraperArgs = [
-        'scraper.py',
+        path.join('src', 'python', 'scraper.py'),
         '--city', CITY,
         '--type', BIZ_TYPE,
         '--max-results', MAX_RESULTS,
@@ -141,7 +141,7 @@ async function step2_audit() {
         throw new Error(`Leads file not found: ${LEADS_CSV}. Run step 1 first.`);
     }
     const auditorArgs = [
-        'auditor.js',
+        path.join('src', 'node', 'auditor.js'),
         '--input', LEADS_CSV,
         '--output', AUDITED_CSV,
         '--concurrency', CONCURRENCY,
@@ -156,7 +156,7 @@ async function step3_socialAudit() {
         throw new Error(`Audited leads file not found: ${AUDITED_CSV}. Run step 2 first.`);
     }
     await runProcess('node', [
-        'social_audit.js',
+        path.join('src', 'node', 'social_audit.js'),
         '--input', AUDITED_CSV,
         '--output', SOCIAL_AUDITED_CSV,
     ], 'Social Auditor');
@@ -172,7 +172,7 @@ async function step4_outreach() {
         throw new Error('OPENAI_API_KEY is not set. Export it before running this step.');
     }
     await runProcess('node', [
-        'generate_outreach.js',
+        path.join('src', 'node', 'generate_outreach.js'),
         '--input', inputCsv,
         '--output', OUTREACH_CSV,
     ], 'Outreach Generator');
@@ -208,7 +208,7 @@ async function step6_email() {
         throw new Error(`Outreach CSV not found: ${OUTREACH_CSV}. Run step 4 first.`);
     }
     await runProcess('node', [
-        'send_emails.js',
+        path.join('src', 'node', 'send_emails.js'),
         '--input', OUTREACH_CSV,
         '--log', EMAIL_LOG,
     ], 'Email Sender');

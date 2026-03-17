@@ -19,7 +19,18 @@ function broadcast(jobId, payload) {
     const job = jobs.get(jobId);
     if (!job) return;
     const data = `data: ${JSON.stringify(payload)}\n\n`;
-    job.clients.forEach(res => { try { res.write(data); } catch { } });
+    const deadClients = [];
+    job.clients.forEach((res, idx) => {
+        try {
+            res.write(data);
+        } catch (err) {
+            console.warn(`[SSE] Client ${idx} write failed:`, err.message);
+            deadClients.push(idx);
+        }
+    });
+    // Remove dead clients in reverse order to preserve indices
+    deadClients.reverse().forEach(idx => job.clients.splice(idx, 1));
+    
     if (payload.type === 'done') {
         job.clients.forEach(res => { try { res.end(); } catch { } });
         job.clients = [];
