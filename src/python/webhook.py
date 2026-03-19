@@ -1,6 +1,15 @@
 import os
+import sys
 import smtplib
 from email.message import EmailMessage
+
+# ---------------------------------------------------------------------------
+# Path fix — make src/agents/ importable from src/python/
+# ---------------------------------------------------------------------------
+_agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
+if os.path.isdir(_agents_dir):
+    sys.path.insert(0, os.path.abspath(_agents_dir))
+# ---------------------------------------------------------------------------
 
 import stripe
 from crm import lookup_lead_from_crm, update_crm_deployed, update_crm_payment
@@ -30,9 +39,9 @@ endpoint_secret = STRIPE_WEBHOOK_SECRET
 app = Flask(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 # STRIPE CHECKOUT SESSION CREATOR
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 
 def create_checkout_session(lead_email, business_name, city, tier="growth"):
     """
@@ -64,7 +73,7 @@ def create_checkout_session(lead_email, business_name, city, tier="growth"):
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": f"{selected['name']} — {business_name}",
+                        "name": f"{selected['name']} \u2014 {business_name}",
                         "description": f"Custom smoke shop website for {business_name} in {city}",
                     },
                     "unit_amount": selected["setup"],
@@ -81,9 +90,9 @@ def create_checkout_session(lead_email, business_name, city, tier="growth"):
         return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 # DEMO EMAIL SENDER (unified with DEMO_BASE_URL)
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 
 def send_demo_email(to_email, business_name, city):
     """Send follow-up email with demo link using DEMO_BASE_URL env var."""
@@ -95,7 +104,7 @@ def send_demo_email(to_email, business_name, city):
     demo_url = f"{DEMO_BASE_URL}/?shop={quote(business_name)}&city={quote(city)}"
 
     msg = EmailMessage()
-    msg['Subject'] = f"Your free demo site — {business_name}"
+    msg['Subject'] = f"Your free demo site \u2014 {business_name}"
     msg['From'] = f"{SENDER_NAME} <{SMTP_USER}>"
     msg['To'] = to_email
 
@@ -107,11 +116,11 @@ def send_demo_email(to_email, business_name, city):
       <div style="max-width:580px;margin:0 auto;padding:40px 24px;">
 
         <h1 style="color:#00f0ff;font-size:1.6rem;margin-bottom:8px;">
-          Hey {business_name} 👋
+          Hey {business_name} \U0001f44b
         </h1>
 
         <p style="color:#ccc;font-size:1rem;line-height:1.7;margin-bottom:24px;">
-          We just spoke — I'm <strong>{SENDER_NAME}</strong>, the local web developer.
+          We just spoke \u2014 I'm <strong>{SENDER_NAME}</strong>, the local web developer.
           As promised, here's the free demo site I built for your smoke shop in <strong>{city}</strong>:
         </p>
 
@@ -120,19 +129,19 @@ def send_demo_email(to_email, business_name, city):
              style="display:inline-block;background:linear-gradient(90deg,#00f0ff,#39ff14);
                     color:#000;font-weight:700;padding:14px 36px;border-radius:999px;
                     font-size:1.1rem;text-decoration:none;">
-            👁 View Your Free Demo
+            \U0001f441 View Your Free Demo
           </a>
         </div>
 
         <p style="color:#aaa;font-size:.9rem;line-height:1.7;">
           This shows what a clean, mobile-friendly website could look like for your shop.
-          No commitment — just a free look. Reply here or call me if you want to move forward.
+          No commitment \u2014 just a free look. Reply here or call me if you want to move forward.
         </p>
 
         <hr style="border:none;border-top:1px solid #222;margin:32px 0;" />
 
         <p style="color:#666;font-size:.82rem;">
-          {SENDER_NAME} • Local Web Developer<br />
+          {SENDER_NAME} \u2022 Local Web Developer<br />
           This demo was created specifically for {business_name}
         </p>
       </div>
@@ -140,7 +149,7 @@ def send_demo_email(to_email, business_name, city):
     </html>
     """
 
-    msg.set_content(f"Hey {business_name},\n\nHere's your free demo site: {demo_url}\n\n— {SENDER_NAME}")
+    msg.set_content(f"Hey {business_name},\n\nHere's your free demo site: {demo_url}\n\n\u2014 {SENDER_NAME}")
     msg.add_alternative(html_content, subtype='html')
 
     try:
@@ -155,9 +164,9 @@ def send_demo_email(to_email, business_name, city):
         return False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 # DEPLOYMENT TRIGGER (uses real customer data)
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 
 def trigger_site_deployment(email, ref_id, stripe_metadata=None):
     """
@@ -171,7 +180,7 @@ def trigger_site_deployment(email, ref_id, stripe_metadata=None):
 
     # 2. Fallback: use Stripe checkout metadata if CRM lookup failed
     if not lead_data and stripe_metadata:
-        log.info("[DEPLOY] CRM lookup failed — using Stripe metadata as fallback.")
+        log.info("[DEPLOY] CRM lookup failed \u2014 using Stripe metadata as fallback.")
         lead_data = {
             "business_name": stripe_metadata.get("business_name", "Smoke Shop"),
             "city": stripe_metadata.get("city", "Houston"),
@@ -251,12 +260,12 @@ def stripe_webhook():
         client_reference_id = session.get('client_reference_id')
         stripe_metadata = session.get('metadata', {})
 
-        log.info("✅ Payment Received via Stripe!")
+        log.info("\u2705 Payment Received via Stripe!")
         log.info(f"  - Customer: {customer_email}")
         log.info(f"  - Amount: ${amount_paid:.2f}")
         log.info(f"  - Ref ID: {client_reference_id}")
 
-        # Stage 1: Update CRM → "WON - PAID"
+        # Stage 1: Update CRM \u2192 "WON - PAID"
         update_crm_payment(customer_email, client_reference_id)
 
         # Stage 2: Deploy site using REAL customer data
@@ -301,7 +310,7 @@ def create_checkout():
 
 @app.route('/vapi/webhook', methods=['POST'])
 def vapi_webhook():
-    """Handle Vapi end-of-call reports — send demo email if email was collected."""
+    """Handle Vapi end-of-call reports \u2014 send demo email if email was collected."""
     data = request.json
     event_type = data.get('message', {}).get('type') or data.get('type')
 
@@ -323,7 +332,7 @@ def vapi_webhook():
         log.info(f"  - Outcome: {structured.get('outcome')}")
 
         if email:
-            log.info(f"  - Email collected: {email} — sending demo...")
+            log.info(f"  - Email collected: {email} \u2014 sending demo...")
             send_demo_email(email, business_name, city)
         else:
             log.info("  - No email collected during the call.")
