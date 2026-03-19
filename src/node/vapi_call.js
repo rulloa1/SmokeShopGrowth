@@ -1,30 +1,12 @@
-/**
- * vapi_call.js
- * Trigger a single outbound call via Vapi.
- * Also supports batch calling from a CSV leads file.
- *
- * Single call:
- *   node vapi_call.js --phone +17135551234 --name "Cloud 9 Smoke Shop" --city Houston
- *
- * Batch from CSV:
- *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv
- *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv --dry-run
- *
- * Check status of previous calls:
- *   node vapi_call.js --status
- *
- * Retry only the failed/skipped leads:
- *   node vapi_call.js --batch --file data/houston-tx/hot_leads.csv --retry
- *
- * CSV must have columns: business_name (or title/name), phone
- */
+import "dotenv/config";
+import axios from "axios";
+import fs from "fs";
+import path from "path";
+import { createReadStream } from "fs";
+import csvParser from "csv-parser";
+import { fileURLToPath } from "url";
 
-require("dotenv").config();
-const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-const { createReadStream } = require("fs");
-const csvParser = require("csv-parser");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID;

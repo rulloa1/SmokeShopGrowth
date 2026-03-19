@@ -31,6 +31,7 @@
     "dependencies": {
         "@playwright/test": "^1.58.2",
         "@sendgrid/mail": "^8.1.6",
+        "apify-client": "^2.22.2",
         "axios": "^1.6.8",
         "better-sqlite3": "^12.8.0",
         "cheerio": "^1.0.0-rc.12",

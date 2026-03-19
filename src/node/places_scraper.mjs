@@ -24,7 +24,7 @@
 
 import "dotenv/config";
 import axios from "axios";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import logger from "./utils/logger.mjs";
