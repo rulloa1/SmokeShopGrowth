@@ -1,7 +1,9 @@
 [build]
-dockerfilePath = "Dockerfile"
-
-[deploy]
-startCommand = 'sh -c "gunicorn --bind 0.0.0.0:$PORT webhook:app"'
-healthcheckPath = "/health"
-restartPolicyType = "on_failure"
+      builder = "DOCKERFILE"
+      dockerfilePath = "Dockerfile"
+    
+    [deploy]
+      startCommand = "node server.js"
+      healthcheckPath = ""
+      restartPolicyType = "on_failure"
+      replicaCount = 1

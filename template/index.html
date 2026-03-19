@@ -173,53 +173,53 @@
         <!-- Tier 1 -->
         <div class="pricing-card gs-reveal">
           <h3 class="tier-name">Starter</h3>
-          <p class="price-tag neon-text">$199<span class="price-sub"> setup</span></p>
-          <p class="price-monthly">then $19/mo</p>
+          <p class="price-tag neon-text">$99<span class="price-sub"> one-time</span></p>
+          <p class="price-monthly">no monthly fees</p>
           <ul class="checklist">
-            <li>Landing Page Only</li>
-            <li>Custom Domain</li>
+            <li>Custom Landing Page</li>
             <li>Google Maps Optimization</li>
             <li>Directions + Hours Info</li>
             <li>Click-to-Call Button</li>
             <li>Mobile-First Design</li>
+            <li>Testimonial from You</li>
           </ul>
           <a href="https://buy.stripe.com/cNi8wO5Na2DwfSB9WJ1Jm05" class="btn btn-glass btn-block-large stripe-checkout-btn" data-tier="starter" target="_blank"
-            rel="noopener noreferrer">Get Starter</a>
+            rel="noopener noreferrer">Get Started — $99</a>
         </div>
 
         <!-- Tier 2 -->
         <div class="pricing-card popular gs-reveal">
           <span class="popular-badge">Most Popular</span>
           <h3 class="tier-name">Growth</h3>
-          <p class="price-tag neon-text">$299<span class="price-sub"> setup</span></p>
-          <p class="price-monthly">then $29/mo</p>
+          <p class="price-tag neon-text">$299<span class="price-sub"> one-time</span></p>
+          <p class="price-monthly">no monthly fees</p>
           <ul class="checklist">
-            <li>Landing Page + Inventory</li>
-            <li>Custom Domain</li>
-            <li>Google Maps Optimization</li>
+            <li>Everything in Starter</li>
+            <li>Custom Domain Setup</li>
             <li>Product Category Pages</li>
-            <li>Click-to-Call Button</li>
-            <li>Mobile-First Design</li>
+            <li>Instagram + Social Links</li>
+            <li>Google Business Optimization</li>
+            <li>Priority Support</li>
           </ul>
           <a href="https://buy.stripe.com/dRmfZgcby1zs9ud2uh1Jm06" class="glow-btn btn-block-large stripe-checkout-btn" data-tier="growth" target="_blank"
-            rel="noopener noreferrer">Get Growth</a>
+            rel="noopener noreferrer">Get Growth — $299</a>
         </div>
 
         <!-- Tier 3 -->
         <div class="pricing-card gs-reveal">
           <h3 class="tier-name">Pro</h3>
-          <p class="price-tag neon-text">$499<span class="price-sub"> setup</span></p>
-          <p class="price-monthly">then $49/mo</p>
+          <p class="price-tag neon-text">$499<span class="price-sub"> one-time</span></p>
+          <p class="price-monthly">no monthly fees</p>
           <ul class="checklist">
             <li>Everything in Growth</li>
-            <li>E-Commerce Capabilities</li>
+            <li>E-Commerce / Online Store</li>
             <li>Age Verification Modal</li>
             <li>Advanced SEO Setup</li>
             <li>Monthly Analytics Report</li>
-            <li>Priority Support</li>
+            <li>Social Media Management</li>
           </ul>
           <a href="https://buy.stripe.com/eVq28qdfC5PI7m57OB1Jm04" class="btn btn-glass btn-block-large stripe-checkout-btn" data-tier="pro" target="_blank"
-            rel="noopener noreferrer">Get Pro</a>
+            rel="noopener noreferrer">Get Pro — $499</a>
         </div>
 
       </div>
@@ -491,8 +491,8 @@
                   'event_label': 'website_inquiry'
                 });
               }
-              
-              form.innerHTML = '<div class="text-center" style="padding:2rem"><p class="font-bold" style="color:var(--second); font-size:1.4rem;">✓ Request Received!</p><p style="color:var(--muted)">We will contact you shortly to discuss your new website.</p></div>';
+
+              form.innerHTML = '<div class="text-center" style="padding:2rem"><p class="font-bold" style="color:var(--second); font-size:1.4rem;">Request Received!</p><p style="color:var(--muted); margin-bottom:1.5rem;">Ready to get your website live? Pick a plan above to get started instantly.</p><a href="#pricing" class="btn btn-primary" style="display:inline-block;">View Pricing</a></div>';
             } else {
               alert('Error: ' + (data.error || 'Unknown error'));
               submitBtn.disabled = false;

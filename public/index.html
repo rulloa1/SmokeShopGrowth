@@ -81,8 +81,8 @@
     /* ── Card ── */
     .card {
       background: var(--surface);
-      backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 28px 32px;
@@ -669,8 +669,8 @@
       border-radius: 12px;
       font-size: 0.85rem;
       font-weight: 500;
-      backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.06);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       transform: translateX(120%);
@@ -753,6 +753,18 @@
       transition: opacity 0.3s ease;
     }
 
+    /* ── Utility classes (replaces inline styles) ── */
+    .mt-16 { margin-top: 16px; }
+    .mt-24 { margin-top: 24px; }
+    .qc-status-bar { margin-top: 16px; font-size: 0.85rem; color: var(--muted); text-align: center; }
+    .card-title--row { display: flex; justify-content: space-between; align-items: center; }
+    .terminal-spacer { width: 36px; }
+    .sk-100 { width: 100px; }
+    .sk-120 { width: 120px; }
+    .sk-140 { width: 140px; }
+    .sk-150 { width: 150px; }
+    .sk-160 { width: 160px; }
+
     /* ── Responsive ── */
     @media (max-width: 640px) {
       body { padding: 28px 14px 60px; }
@@ -797,6 +809,18 @@
 
   <div class="container">
 
+    <!-- ── Leads & Conversions Card ── -->
+    <div class="card mt-16" id="leads-section">
+      <div class="card-title--row">
+        <div class="card-title" style="margin-bottom:0">Recent Leads & Conversions</div>
+        <button class="btn-dl" onclick="refreshLeads()" style="padding: 6px 14px">Refresh</button>
+      </div>
+      <div id="leads-container" class="mt-24">
+        <div class="skeleton-row"><div class="skeleton-bar sk-150"></div><div class="skeleton-bar sk-100"></div></div>
+        <div class="skeleton-row"><div class="skeleton-bar sk-150"></div><div class="skeleton-bar sk-100"></div></div>
+      </div>
+    </div>
+
     <!-- ── Search Form ── -->
     <div class="card">
       <div class="card-title">Search Settings</div>
@@ -813,15 +837,6 @@
             <input type="text" id="bizType" value="smoke shop" placeholder="e.g. vape shop, dispensary" />
           </label>
 
-          <label class="full">
-            <span>Max Results</span>
-            <div class="slider-wrap">
-              <input type="range" id="maxResults" min="10" max="200" step="10" value="100"
-                oninput="document.getElementById('maxVal').textContent = this.value" />
-              <span class="slider-val" id="maxVal">100</span>
-            </div>
-          </label>
-
           <!-- Toggles -->
           <label class="full">
             <div class="toggle-row">
@@ -830,7 +845,7 @@
                 <div class="toggle-desc">Faster — uses basic Axios + Cheerio checks instead</div>
               </div>
               <label class="toggle">
-                <input type="checkbox" id="skipLighthouse" checked />
+                <input type="checkbox" id="skipLighthouse" checked aria-label="Skip Lighthouse Audit" />
                 <div class="toggle-track"></div>
               </label>
             </div>
@@ -843,7 +858,7 @@
                 <div class="toggle-desc">Uses Minimax T2V to create website previews (Requires API Key)</div>
               </div>
               <label class="toggle">
-                <input type="checkbox" id="generateDemo" checked />
+                <input type="checkbox" id="generateDemo" checked aria-label="Generate Demo Videos" />
                 <div class="toggle-track"></div>
               </label>
             </div>
@@ -856,7 +871,7 @@
                 <div class="toggle-desc">Requires credentials.json in project root</div>
               </div>
               <label class="toggle">
-                <input type="checkbox" id="exportSheets" checked
+                <input type="checkbox" id="exportSheets" checked aria-label="Export to Google Sheets"
                   onchange="document.getElementById('sheets-field').classList.toggle('visible', this.checked)" />
                 <div class="toggle-track"></div>
               </label>
@@ -869,7 +884,7 @@
 
         </div>
 
-        <div style="margin-top:24px">
+        <div class="mt-24">
           <button type="submit" class="btn-run" id="run-btn">
             <span id="run-btn-text">Run Pipeline</span>
           </button>
@@ -886,7 +901,7 @@
           <input type="text" id="qc-phone" placeholder="e.g. +1 555 123 4567" required />
         </label>
 
-        <div class="form-grid" style="margin-top: 16px;">
+        <div class="form-grid mt-16">
           <label>
             <span>Business Name (Optional)</span>
             <input type="text" id="qc-biz" placeholder="e.g. Acme Corp" />
@@ -897,19 +912,19 @@
           </label>
         </div>
 
-        <div style="margin-top:24px">
+        <div class="mt-24">
           <button type="submit" class="btn-call" id="qc-btn">
             <span id="qc-btn-text">Call Now (ElevenLabs)</span>
           </button>
         </div>
-        <div id="qc-status" style="margin-top: 16px; font-size: 0.85rem; color: var(--muted); text-align: center;">
+        <div id="qc-status" class="qc-status-bar">
         </div>
       </form>
     </div>
 
     <!-- ── Progress ── -->
     <div class="card" id="progress-card">
-      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <div class="card-title card-title--row">
         <span>Pipeline Progress</span>
         <span id="status-badge" class="badge running"><span class="dot-blink"></span> Running</span>
       </div>
@@ -943,7 +958,7 @@
           <div class="terminal-dot yellow"></div>
           <div class="terminal-dot green"></div>
           <div class="terminal-title-text">pipeline &mdash; live output</div>
-          <div style="width:36px"></div>
+          <div class="terminal-spacer"></div>
         </div>
         <div class="log-terminal" id="log-terminal"></div>
       </div>
@@ -954,10 +969,106 @@
       <div class="card-title">Results</div>
       <div id="result-rows">
         <!-- skeleton placeholder -->
-        <div class="skeleton-row"><div class="skeleton-bar" style="width:120px"></div><div class="skeleton-bar" style="width:100px"></div></div>
-        <div class="skeleton-row"><div class="skeleton-bar" style="width:140px"></div><div class="skeleton-bar" style="width:100px"></div></div>
-        <div class="skeleton-row"><div class="skeleton-bar" style="width:150px"></div><div class="skeleton-bar" style="width:100px"></div></div>
-        <div class="skeleton-row"><div class="skeleton-bar" style="width:160px"></div><div class="skeleton-bar" style="width:100px"></div></div>
+        <div class="skeleton-row"><div class="skeleton-bar sk-120"></div><div class="skeleton-bar sk-100"></div></div>
+        <div class="skeleton-row"><div class="skeleton-bar sk-140"></div><div class="skeleton-bar sk-100"></div></div>
+        <div class="skeleton-row"><div class="skeleton-bar sk-150"></div><div class="skeleton-bar sk-100"></div></div>
+        <div class="skeleton-row"><div class="skeleton-bar sk-160"></div><div class="skeleton-bar sk-100"></div></div>
+      </div>
+    </div>
+
+    <!-- ── Social Media Manager ── -->
+    <div class="card" id="social-card">
+      <div class="card-title card-title--row">
+        <div class="card-title" style="margin-bottom:0">📱 Social Media Manager</div>
+        <span class="badge" style="background:rgba(139,92,246,0.12);color:#a78bfa">Buffer + Instagram</span>
+      </div>
+
+      <!-- Step 1: Generate Content Calendar -->
+      <div style="margin-top:20px">
+        <div style="font-size:0.8rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Step 1 — Generate Content Calendar</div>
+        <div class="form-grid">
+          <label>
+            <span>Business Name</span>
+            <input type="text" id="soc-biz" placeholder="e.g. Cloud 9 Smoke Shop" />
+          </label>
+          <label>
+            <span>City</span>
+            <input type="text" id="soc-city" placeholder="e.g. Houston TX" />
+          </label>
+          <label>
+            <span>Instagram Handle (optional)</span>
+            <input type="text" id="soc-ig" placeholder="e.g. cloud9smokeshop" />
+          </label>
+          <label>
+            <span>Specialty</span>
+            <input type="text" id="soc-specialty" value="smoke shop products" placeholder="smoke shop products, vapes" />
+          </label>
+        </div>
+        <div class="mt-16">
+          <button class="btn-run" id="soc-gen-btn" onclick="generateCalendar()" type="button" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">
+            <span id="soc-gen-text">✨ Generate 30-Day Calendar (GPT-4o)</span>
+          </button>
+        </div>
+        <div id="soc-calendar-preview" style="margin-top:14px;display:none">
+          <div style="font-size:0.78rem;color:var(--muted);margin-bottom:8px">Preview (first 3 posts):</div>
+          <div id="soc-preview-rows" style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;line-height:1.8;background:rgba(0,0,0,0.3);border-radius:8px;padding:12px 16px;color:#9ca3af;white-space:pre-wrap"></div>
+        </div>
+      </div>
+
+      <!-- Step 2: Schedule to Buffer -->
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-size:0.8rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Step 2 — Schedule to Buffer</div>
+        <div class="form-grid">
+          <label>
+            <span>Buffer Profile ID</span>
+            <input type="text" id="soc-profile" placeholder="Run --list-profiles to find yours" />
+          </label>
+          <label style="align-self:end">
+            <button class="btn-dl" onclick="listBufferProfiles()" type="button" style="width:100%;padding:11px 16px;text-align:center">📋 List My Profiles</button>
+          </label>
+        </div>
+        <div class="mt-16">
+          <button class="btn-run" id="soc-sched-btn" onclick="scheduleCalendar()" type="button" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)" disabled>
+            <span id="soc-sched-text">📅 Schedule All 30 Posts to Buffer</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: DM Outreach -->
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-size:0.8rem;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Step 3 — Instagram DM Outreach</div>
+        <div class="form-grid">
+          <label>
+            <span>Input CSV (with instagram column)</span>
+            <input type="text" id="soc-outreach-file" value="social_audited.csv" placeholder="social_audited.csv" />
+          </label>
+          <label>
+            <span>Max DMs per Day</span>
+            <input type="number" id="soc-dm-limit" value="20" min="5" max="50" />
+          </label>
+        </div>
+        <div class="mt-16" style="display:flex;gap:12px">
+          <button class="btn-dl" onclick="dryRunOutreach()" type="button" style="flex:1;padding:12px;text-align:center;font-weight:600">
+            🔍 Dry Run (Preview)
+          </button>
+          <button class="btn-run" onclick="runOutreach()" type="button" style="flex:2;background:linear-gradient(135deg,#059669,#10b981)">
+            <span>📨 Start DM Outreach</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Social Status log -->
+      <div id="soc-log" style="margin-top:16px;display:none">
+        <div class="terminal-wrap">
+          <div class="terminal-titlebar">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <div class="terminal-title-text">social manager — output</div>
+            <div class="terminal-spacer"></div>
+          </div>
+          <div class="log-terminal" id="soc-terminal" style="height:160px"></div>
+        </div>
       </div>
     </div>
 
@@ -1121,6 +1232,7 @@
             setStep(6);
             showResults(msg.files, jobId);
             showToast('Pipeline complete \u2014 results ready!', 'success');
+            refreshLeads(); // Refresh leads after pipeline completion
           } else {
             badge.className = 'badge failed';
             badge.textContent = '\u2717 Failed';
@@ -1199,6 +1311,219 @@
         if (sp) sp.remove();
       }
     });
+    // ── Lead Management Logic ──
+    async function refreshLeads() {
+      const container = document.getElementById('leads-container');
+      try {
+        const res = await fetch('/api/leads');
+        const data = await res.json();
+        
+        if (!data.leads || data.leads.length === 0) {
+          container.innerHTML = '<p style="color:var(--muted); text-align:center; padding: 20px;">No leads captured yet.</p>';
+          return;
+        }
+
+        container.innerHTML = data.leads.reverse().map(lead => `
+          <div class="result-row">
+            <div>
+              <div style="font-weight:600; color:var(--text)">${lead.business || lead.business_name || 'Prospect'}</div>
+              <div style="font-size:0.75rem; color:var(--muted)">${lead.contact_name} | ${lead.email} | ${lead.tier || 'Starter'}</div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center">
+              <span style="font-size:0.7rem; color:var(--muted)">${new Date(lead.date).toLocaleDateString()}</span>
+              <button class="btn-dl" onclick="deploySite('${lead.business || lead.business_name}', '${lead.email}', '${lead.tier}')">
+                Deliver Site
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        showToast('Failed to load leads', 'error');
+      }
+    }
+
+    async function deploySite(business, email, tier) {
+      showToast(`Building site for ${business}...`, 'info');
+      try {
+        const res = await fetch('/api/deploy-site', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business, email, tier })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`✅ Site ready in: /deployments/${data.folder}`, 'success');
+          window.open(data.url, '_blank');
+        } else {
+          showToast(data.error || 'Deployment failed', 'error');
+        }
+      } catch (err) {
+        showToast('Deployment error', 'error');
+      }
+    }
+
+    // Initial load
+    refreshLeads();
+
+    // ── Social Media Manager Logic ──
+    let currentCalendar = null;
+    let currentCalendarBiz = null;
+
+    function socLog(msg, type = 'log') {
+      const terminal = document.getElementById('soc-terminal');
+      const log = document.getElementById('soc-log');
+      log.style.display = 'block';
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      const now = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      line.innerHTML = `<span class="log-ts">${now}</span><span class="log-msg ${type}">${escHtml(msg)}</span>`;
+      terminal.appendChild(line);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    async function generateCalendar() {
+      const biz = document.getElementById('soc-biz').value.trim();
+      const city = document.getElementById('soc-city').value.trim();
+      const ig = document.getElementById('soc-ig').value.trim();
+      const specialty = document.getElementById('soc-specialty').value.trim();
+      if (!biz) { showToast('Enter a business name first', 'error'); return; }
+
+      const btn = document.getElementById('soc-gen-btn');
+      const btnText = document.getElementById('soc-gen-text');
+      btn.disabled = true;
+      btnText.textContent = 'Generating…';
+      if (!btn.querySelector('.spinner')) {
+        const sp = document.createElement('span'); sp.className = 'spinner';
+        btn.insertBefore(sp, btnText);
+      }
+
+      socLog(`Generating 30-day calendar for "${biz}" via GPT-4o…`, 'step');
+
+      try {
+        const res = await fetch('/api/social/generate-calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_name: biz, city, instagram: ig, specialty }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
+
+        currentCalendar = data.posts;
+        currentCalendarBiz = biz;
+
+        // Show preview
+        const preview = document.getElementById('soc-calendar-preview');
+        const previewRows = document.getElementById('soc-preview-rows');
+        preview.style.display = 'block';
+        previewRows.innerHTML = data.posts.slice(0, 3).map(p =>
+          `Day ${p.day} [${p.post_type}] ${p.platform} @ ${p.best_time}\n${p.caption.substring(0, 90)}…`
+        ).join('\n\n');
+
+        // Enable scheduler
+        document.getElementById('soc-sched-btn').disabled = false;
+
+        socLog(`✅ ${data.posts.length} posts generated! Preview shown above.`, 'success');
+        showToast(`30-day calendar ready for ${biz}!`, 'success');
+      } catch (err) {
+        socLog(`Error: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '✨ Generate 30-Day Calendar (GPT-4o)';
+        const sp = btn.querySelector('.spinner');
+        if (sp) sp.remove();
+      }
+    }
+
+    async function listBufferProfiles() {
+      socLog('Fetching Buffer profiles…', 'step');
+      try {
+        const res = await fetch('/api/social/buffer-profiles');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
+        data.profiles.forEach(p => {
+          socLog(`  ${p.service} | ${p.formatted_username} | ID: ${p.id}`, 'log');
+        });
+        showToast('Profiles listed in log below', 'info');
+      } catch (err) {
+        socLog(`Error: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
+      }
+    }
+
+    async function scheduleCalendar() {
+      if (!currentCalendar) { showToast('Generate a calendar first', 'error'); return; }
+      const profileId = document.getElementById('soc-profile').value.trim();
+      if (!profileId) { showToast('Enter a Buffer Profile ID', 'error'); return; }
+
+      const btn = document.getElementById('soc-sched-btn');
+      const btnText = document.getElementById('soc-sched-text');
+      btn.disabled = true;
+      btnText.textContent = 'Scheduling…';
+
+      socLog(`Scheduling ${currentCalendar.length} posts to Buffer profile ${profileId}…`, 'step');
+
+      try {
+        const res = await fetch('/api/social/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ posts: currentCalendar, profileId, businessName: currentCalendarBiz }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
+        socLog(`✅ Scheduled! ${data.success} posted, ${data.failed} failed.`, 'success');
+        showToast(`${data.success} posts scheduled to Buffer!`, 'success');
+      } catch (err) {
+        socLog(`Error: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = '📅 Schedule All 30 Posts to Buffer';
+      }
+    }
+
+    async function dryRunOutreach() {
+      const inputFile = document.getElementById('soc-outreach-file').value.trim();
+      const limit = document.getElementById('soc-dm-limit').value;
+      socLog('Running DM outreach dry-run (preview only)…', 'step');
+      try {
+        const res = await fetch('/api/social/outreach-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inputFile, limit }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
+        data.preview.forEach(p => socLog(`  @${p.handle}: "${p.message.substring(0, 60)}…"`, 'log'));
+        showToast(`Preview: ${data.preview.length} DMs would be sent`, 'info');
+      } catch (err) {
+        socLog(`Error: ${err.message}`, 'error');
+      }
+    }
+
+    async function runOutreach() {
+      const inputFile = document.getElementById('soc-outreach-file').value.trim();
+      const limit = document.getElementById('soc-dm-limit').value;
+      if (!confirm(`Send up to ${limit} Instagram DMs? This will open a browser and run for ~${Math.round(limit * 67 / 60)} minutes.`)) return;
+      socLog(`Starting DM outreach (${limit}/day limit)…`, 'step');
+      try {
+        const res = await fetch('/api/social/outreach-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inputFile, limit }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Server error');
+        socLog(`✅ Outreach started as background job.`, 'success');
+        showToast('DM outreach running in background!', 'success');
+      } catch (err) {
+        socLog(`Error: ${err.message}`, 'error');
+        showToast(`Failed: ${err.message}`, 'error');
+      }
+    }
+
+    // Initial load
+    refreshLeads();
   </script>
 </body>
 

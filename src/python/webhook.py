@@ -1,144 +1,33 @@
 import os
-import json
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, request, jsonify
+
 import stripe
-from dotenv import load_dotenv
-import gspread
-from google.oauth2.service_account import Credentials
-from deploy_agent import deploy_shop_website
+from crm import lookup_lead_from_crm, update_crm_deployed, update_crm_payment
 from delivery_agent import trigger_delivery_flow
+from deploy_agent import deploy_shop_website
 from error_handler import log_failed_job
-import subprocess
-import threading
-import uuid
-from datetime import datetime
+from flask import Flask, jsonify, request
+from logger import get_logger
+
+from config import (
+    DEMO_BASE_URL,
+    SENDER_NAME,
+    SMTP_HOST,
+    SMTP_PASS,
+    SMTP_PORT,
+    SMTP_USER,
+    STRIPE_API_KEY,
+    STRIPE_WEBHOOK_SECRET,
+)
+
+log = get_logger(__name__)
 
 
-# Load environment variables
-load_dotenv()
-
-stripe.api_key = os.getenv('STRIPE_API_KEY')
-endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
-GOOGLE_SHEET_URL = os.getenv('GOOGLE_SHEET_URL')
-DEMO_BASE_URL = os.getenv('DEMO_BASE_URL', 'https://smoke-shop-premium-demo.netlify.app')
-
-if not GOOGLE_SHEET_URL:
-    print("WARNING: GOOGLE_SHEET_URL environment variable is missing. CRM updates will fail.")
-
-# Email setup
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
-SMTP_USER = os.getenv('SMTP_USER')
-SMTP_PASS = os.getenv('SMTP_PASS')
-SENDER_NAME = os.getenv('AGENT_NAME', 'Alex')
+stripe.api_key = STRIPE_API_KEY
+endpoint_secret = STRIPE_WEBHOOK_SECRET
 
 app = Flask(__name__)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CRM HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_sheets_client():
-    """Return an authorized gspread client using service account credentials."""
-    scopes = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = Credentials.from_service_account_file('credentials.json', scopes=scopes)
-    return gspread.authorize(creds)
-
-
-def lookup_lead_from_crm(email, ref_id=None):
-    """
-    Look up a lead's full data from Google Sheets by email (or ref_id).
-    Returns a dict with business_name, city, phone, address, maps_url, email, custom_domain
-    or None if not found.
-    """
-    if not GOOGLE_SHEET_URL:
-        print("[CRM] GOOGLE_SHEET_URL not set — cannot look up lead.")
-        return None
-
-    try:
-        client = _get_sheets_client()
-        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
-        all_records = sheet.get_all_records()
-
-        # Try to find by email first, then by ref_id
-        for row in all_records:
-            row_email = str(row.get('email', row.get('Email', ''))).strip().lower()
-            row_ref = str(row.get('ref_id', row.get('client_reference_id', row.get('lead_id', '')))).strip()
-
-            if (email and row_email == email.strip().lower()) or (ref_id and row_ref == ref_id):
-                lead = {
-                    "business_name": row.get('business_name', row.get('Business Name', row.get('title', 'Smoke Shop'))),
-                    "city": row.get('city', row.get('City', '')),
-                    "phone": row.get('phone', row.get('Phone', '')),
-                    "address": row.get('address', row.get('Address', '')),
-                    "email": email or row_email,
-                    "maps_url": row.get('maps_url', row.get('google_maps_url', 'https://maps.google.com')),
-                    "custom_domain": row.get('custom_domain', row.get('domain', None)) or None,
-                    "hours": row.get('hours', row.get('Hours', 'Open Daily 9am - 10pm')),
-                    "instagram": row.get('instagram', row.get('Instagram', '')),
-                }
-                print(f"[CRM] Found lead: {lead['business_name']} ({lead['city']})")
-                return lead
-
-        print(f"[CRM] Lead not found for email={email}, ref_id={ref_id}")
-        return None
-
-    except Exception as e:
-        print(f"[CRM] Lookup failed: {e}")
-        return None
-
-
-def update_crm_payment(email, ref_id):
-    """
-    Find the lead in Google Sheets and update their status to 'WON - PAID'.
-    """
-    print(f"[CRM] Updating Google Sheets for {email}...")
-    if not GOOGLE_SHEET_URL:
-        print("[CRM] GOOGLE_SHEET_URL not set — skipping.")
-        return
-
-    try:
-        client = _get_sheets_client()
-        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
-
-        try:
-            cell = sheet.find(email)
-            if cell:
-                sheet.update_cell(cell.row, cell.col + 1, "WON - PAID")
-                print(f"  [OK] Marked {email} as PAID in row {cell.row}!")
-            else:
-                print(f"  [Info] Email {email} not found. Appending as new paid lead.")
-                sheet.append_row([email, ref_id, "WON - PAID", "Awaiting Auto-Deploy"])
-        except Exception as e:
-            if "not found" in str(e).lower():
-                print(f"  [Info] Email {email} not found. Appending as new paid lead.")
-                sheet.append_row([email, ref_id, "WON - PAID", "Awaiting Auto-Deploy"])
-            else:
-                raise e
-
-    except Exception as e:
-        print(f"  [ERROR] CRM Sync Failed: {e}")
-
-
-def update_crm_deployed(email, deployed_url):
-    """Update the CRM row with the live URL after deployment."""
-    if not GOOGLE_SHEET_URL:
-        return
-    try:
-        client = _get_sheets_client()
-        sheet = client.open_by_url(GOOGLE_SHEET_URL).sheet1
-        cell = sheet.find(email)
-        if cell:
-            # Try to find a "Live URL" or "Status" column after the email
-            # We'll update the cell 2 columns to the right with the URL
-            sheet.update_cell(cell.row, cell.col + 2, deployed_url)
-            sheet.update_cell(cell.row, cell.col + 1, "DEPLOYED")
-            print(f"  [CRM] Updated {email} with live URL: {deployed_url}")
-    except Exception as e:
-        print(f"  [CRM] Failed to update deployed URL: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -149,17 +38,17 @@ def create_checkout_session(lead_email, business_name, city, tier="growth"):
     """
     Create a Stripe Checkout Session for a lead.
     Returns the checkout URL, or None on failure.
-    
+
     tier: 'starter' | 'growth' | 'pro'
     """
     TIER_PRICES = {
-        "starter": {"setup": 19900, "name": "Starter Website"},
+        "starter": {"setup": 9900, "name": "Starter Website"},
         "growth":  {"setup": 29900, "name": "Growth Website"},
         "pro":     {"setup": 49900, "name": "Pro Website"},
     }
-    
+
     selected = TIER_PRICES.get(tier, TIER_PRICES["growth"])
-    
+
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -185,10 +74,10 @@ def create_checkout_session(lead_email, business_name, city, tier="growth"):
             success_url=f"{DEMO_BASE_URL}/?shop={business_name}&city={city}&paid=true",
             cancel_url=f"{DEMO_BASE_URL}/?shop={business_name}&city={city}",
         )
-        print(f"[STRIPE] Checkout session created: {session.url}")
+        log.info(f"Created Stripe checkout session: {session.url}")
         return session.url
     except Exception as e:
-        print(f"[STRIPE] Failed to create checkout session: {e}")
+        log.error(f"Failed to create Stripe checkout session: {e}")
         return None
 
 
@@ -199,7 +88,7 @@ def create_checkout_session(lead_email, business_name, city, tier="growth"):
 def send_demo_email(to_email, business_name, city):
     """Send follow-up email with demo link using DEMO_BASE_URL env var."""
     if not SMTP_USER or not SMTP_PASS:
-        print("[-] SMTP credentials missing. Cannot send email.")
+        log.warning("SMTP credentials missing. Cannot send email.")
         return False
 
     from urllib.parse import quote
@@ -259,10 +148,10 @@ def send_demo_email(to_email, business_name, city):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
-        print(f"[+] Follow-up email sent successfully to {to_email}")
+        log.info(f"Follow-up email sent successfully to {to_email}")
         return True
     except Exception as e:
-        print(f"[-] Failed to send email: {e}")
+        log.error(f"Failed to send email: {e}")
         return False
 
 
@@ -275,14 +164,14 @@ def trigger_site_deployment(email, ref_id, stripe_metadata=None):
     Look up the real lead from CRM, then deploy their personalized site.
     Falls back to Stripe metadata if CRM lookup fails.
     """
-    print(f"[DEPLOY] Triggering automated site build for {email}...")
+    log.info(f"[DEPLOY] Triggering automated site build for {email}...")
 
     # 1. Look up real lead data from CRM
     lead_data = lookup_lead_from_crm(email, ref_id)
 
     # 2. Fallback: use Stripe checkout metadata if CRM lookup failed
     if not lead_data and stripe_metadata:
-        print(f"[DEPLOY] CRM lookup failed — using Stripe metadata as fallback.")
+        log.info("[DEPLOY] CRM lookup failed — using Stripe metadata as fallback.")
         lead_data = {
             "business_name": stripe_metadata.get("business_name", "Smoke Shop"),
             "city": stripe_metadata.get("city", "Houston"),
@@ -296,7 +185,7 @@ def trigger_site_deployment(email, ref_id, stripe_metadata=None):
     # 3. If we still have nothing, fail gracefully
     if not lead_data:
         error_msg = f"Cannot deploy: no lead data found for email={email}, ref_id={ref_id}"
-        print(f"[ERROR] {error_msg}")
+        log.error(error_msg)
         log_failed_job('deploy', {"email": email, "ref_id": ref_id}, error_msg)
         return
 
@@ -307,7 +196,7 @@ def trigger_site_deployment(email, ref_id, stripe_metadata=None):
         deployed_url = deploy_shop_website(lead_data)
 
         if deployed_url:
-            print(f"\n  [*] Site deployed: {deployed_url}")
+            log.info(f"Site deployed successfully: {deployed_url}")
 
             # Update CRM with live URL
             update_crm_deployed(email, deployed_url)
@@ -318,17 +207,17 @@ def trigger_site_deployment(email, ref_id, stripe_metadata=None):
             except Exception as e:
                 log_failed_job('delivery', {"lead_data": lead_data, "live_url": deployed_url}, str(e))
         else:
-            print(f"\n  [ERROR] Build returned None. Sending to retry queue.")
+            log.error("Deployment script returned None. Sending to retry queue.")
             log_failed_job('deploy', lead_data, "Deployment script returned None")
 
     except Exception as e:
-        print(f"\n  [ERROR] Fatal error during deployment flow: {e}")
+        log.critical(f"Fatal error during deployment flow: {e}")
         log_failed_job('deploy', lead_data, str(e))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ROUTES
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------- #
+#                                    ROUTES                                    #
+# ---------------------------------------------------------------------------- #
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -342,16 +231,16 @@ def stripe_webhook():
     sig_header = request.headers.get('STRIPE_SIGNATURE')
 
     if not endpoint_secret:
-        print("Webhook error: No STRIPE_WEBHOOK_SECRET configured.")
+        log.error("Stripe webhook error: No STRIPE_WEBHOOK_SECRET configured.")
         return 'No webhook secret configured.', 400
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
     except ValueError:
-        print("Webhook error: Invalid payload")
+        log.error("Stripe webhook error: Invalid payload")
         return 'Invalid payload', 400
     except stripe.SignatureVerificationError:
-        print("Webhook error: Invalid signature")
+        log.error("Stripe webhook error: Invalid signature")
         return 'Invalid signature', 400
 
     if event['type'] == 'checkout.session.completed':
@@ -362,11 +251,10 @@ def stripe_webhook():
         client_reference_id = session.get('client_reference_id')
         stripe_metadata = session.get('metadata', {})
 
-        print(f"\n[STRIPE] ✅ Payment Received!")
-        print(f"  - Customer: {customer_email}")
-        print(f"  - Amount: ${amount_paid:.2f}")
-        print(f"  - Ref ID: {client_reference_id}")
-        print(f"  - Metadata: {stripe_metadata}")
+        log.info("✅ Payment Received via Stripe!")
+        log.info(f"  - Customer: {customer_email}")
+        log.info(f"  - Amount: ${amount_paid:.2f}")
+        log.info(f"  - Ref ID: {client_reference_id}")
 
         # Stage 1: Update CRM → "WON - PAID"
         update_crm_payment(customer_email, client_reference_id)
@@ -381,7 +269,7 @@ def stripe_webhook():
 def create_checkout():
     """
     Create a Stripe Checkout Session for a specific lead.
-    
+
     POST body:
     {
         "email": "owner@shop.com",
@@ -389,7 +277,7 @@ def create_checkout():
         "city": "Houston",
         "tier": "growth"  // optional: starter | growth | pro
     }
-    
+
     Returns: { "checkout_url": "https://checkout.stripe.com/..." }
     """
     data = request.json or {}
@@ -431,14 +319,14 @@ def vapi_webhook():
         if not email and contact_value and '@' in contact_value:
             email = contact_value
 
-        print(f"\n[Webhook] Call ended with {business_name}.", flush=True)
-        print(f"[Webhook] Outcome: {structured.get('outcome')}", flush=True)
+        log.info(f"Vapi call ended with {business_name}.")
+        log.info(f"  - Outcome: {structured.get('outcome')}")
 
         if email:
-            print(f"[Webhook] Email collected: {email} — sending demo...", flush=True)
+            log.info(f"  - Email collected: {email} — sending demo...")
             send_demo_email(email, business_name, city)
         else:
-            print("[Webhook] No email collected during the call.", flush=True)
+            log.info("  - No email collected during the call.")
 
     return jsonify({"status": "received"}), 200
 
@@ -594,13 +482,9 @@ def api_list_template_submissions():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 4242))
     is_debug = os.environ.get('FLASK_DEBUG', '').lower() == 'true'
-    print(f"Starting Unified Webhook Server on port {port}...")
-    print(f"  Stripe webhook: POST /webhook")
-    print(f"  Checkout creator: POST /create-checkout")
-    print(f"  Vapi webhook: POST /vapi/webhook")
-    print(f"  Health: GET /health")
-    if not stripe.api_key:
-        print("  ⚠️  STRIPE_API_KEY not set!")
+    log.info(f"Starting Unified Webhook Server on port {port}...")
+    if not STRIPE_API_KEY:
+        log.warning("STRIPE_API_KEY not set!")
     if not endpoint_secret or endpoint_secret == 'whsec_...':
-        print("  ⚠️  STRIPE_WEBHOOK_SECRET not configured!")
+        log.warning("STRIPE_WEBHOOK_SECRET not configured!")
     app.run(host='0.0.0.0', port=port, debug=is_debug)

@@ -1,7 +1,7 @@
-import os
 import time
+
 from dotenv import load_dotenv
-from webhook import update_crm_payment, trigger_site_deployment
+from webhook import trigger_site_deployment, update_crm_payment
 
 load_dotenv()
 
@@ -11,7 +11,7 @@ def run_simulation():
     print("=====================================================")
     print(f"Time: {time.ctime()}")
     print("\n[SIMULATION] Triggering Simulated Stripe checkout.session.completed Event...\n")
-    
+
     # Mock Customer Data — simulates what Stripe would send
     mock_email = "testowner@cloud9smokeshop.com"
     mock_ref_id = "test_lead_id_777"
@@ -20,12 +20,12 @@ def run_simulation():
         "city": "Houston",
         "tier": "growth",
     }
-    
+
     # --- PHASE 1: CRM UPDATE ---
     print(">>> PHASE 1: CRM Update (Marking as PAID)")
     update_crm_payment(mock_email, mock_ref_id)
     time.sleep(2)
-    
+
     # --- PHASE 2: DEPLOYMENT & DELIVERY ---
     # This now:
     # 1. Looks up real lead data from Google Sheets CRM
@@ -37,7 +37,7 @@ def run_simulation():
     # 7. Logs failures to retry queue (error_handler.py)
     print("\n>>> PHASE 2: Automated Deployment, QA, & Delivery")
     trigger_site_deployment(mock_email, mock_ref_id, mock_stripe_metadata)
-    
+
     print("\n=====================================================")
     print("   [*] FULL PIPELINE SIMULATION COMPLETE ")
     print("=====================================================")
@@ -51,6 +51,6 @@ if __name__ == "__main__":
         print("[WARNING] You may not be logged into Vercel CLI. Run `npx vercel login` first.")
     else:
         print(f"[OK] Logged into Vercel as: {result.stdout.strip()}")
-        
+
     print("\nBeginning the automated pipeline simulation...")
     run_simulation()

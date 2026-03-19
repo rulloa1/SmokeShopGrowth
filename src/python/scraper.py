@@ -22,25 +22,23 @@ import logging
 import os
 import random
 import re
-import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
 from urllib.parse import quote_plus
 
 import pandas as pd
 from playwright.async_api import (
     Browser,
     Page,
-    Playwright,
     async_playwright,
+)
+from playwright.async_api import (
     TimeoutError as PlaywrightTimeout,
 )
 from tqdm import tqdm
 
 import config
-
 
 # ──────────────────────────────────────────────
 # Logging
@@ -61,11 +59,14 @@ class Business:
     business_name: str = ""
     address: str = ""
     phone: str = ""
+    email: str = ""
     website: str = ""
     rating: str = ""
     review_count: str = ""
     google_maps_url: str = ""
     image_url: str = ""
+    instagram: str = ""
+    facebook: str = ""
 
 
 
@@ -228,6 +229,61 @@ class GoogleMapsScraper:
 
         return biz
 
+    async def _extract_social_links(self, page: Page, website_url: str) -> tuple[str, str, str]:
+        """Visit the business website and extract Instagram, Facebook, and email."""
+        if not website_url or not website_url.startswith("http"):
+            return "", "", ""
+        try:
+            await page.goto(website_url, wait_until="domcontentloaded", timeout=8000)
+            await asyncio.sleep(0.5)
+            html = await page.content()
+
+            # Instagram
+            ig_match = re.search(
+                r'instagram\.com/([A-Za-z0-9_.]+)/?["\'>\s]',
+                html, re.IGNORECASE
+            )
+            instagram = ig_match.group(1).rstrip('/') if ig_match else ""
+            # Filter out generic Instagram paths
+            if instagram.lower() in ('p', 'reel', 'explore', 'stories', 'accounts', 'share', ''):
+                instagram = ""
+
+            # Facebook
+            fb_match = re.search(
+                r'facebook\.com/([A-Za-z0-9_.\-]+)/?["\'>\s]',
+                html, re.IGNORECASE
+            )
+            facebook = fb_match.group(1).rstrip('/') if fb_match else ""
+            # Filter out generic Facebook paths
+            if facebook.lower() in ('sharer', 'share', 'dialog', 'plugins', 'tr', 'login', ''):
+                facebook = ""
+
+            # Email — check mailto: links first, then scan page text
+            email = ""
+            mailto_match = re.search(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})', html, re.IGNORECASE)
+            if mailto_match:
+                email = mailto_match.group(1).strip().lower()
+            else:
+                # Scan visible text for email patterns
+                email_matches = re.findall(
+                    r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}',
+                    html
+                )
+                # Filter out common false positives
+                ignore = {'wixpress.com', 'sentry.io', 'w3.org', 'schema.org', 'example.com',
+                          'googleapis.com', 'googleusercontent.com', 'gstatic.com', 'wordpress.org'}
+                for candidate in email_matches:
+                    candidate = candidate.lower()
+                    domain = candidate.split('@')[1] if '@' in candidate else ''
+                    if domain and not any(fp in domain for fp in ignore):
+                        email = candidate
+                        break
+
+            return instagram, facebook, email
+        except Exception as exc:
+            log.debug("Social link extraction failed for %s: %s", website_url, exc)
+            return "", "", ""
+
     # ── Scroll loop ─────────────────────────────
     async def _scroll_and_collect_urls(self, page: Page) -> list[str]:
         """
@@ -237,7 +293,7 @@ class GoogleMapsScraper:
         log.info("Scrolling results list...")
         collected_urls: list[str] = []
         seen_hrefs: set[str] = set()
-        stale_count = 0
+        stale_count: int = 0
         max_stale = config.MAX_STALE_SCROLLS  # stop after this many scrolls with no new items
 
         with tqdm(desc="Scanning result cards", unit=" cards") as pbar:
@@ -246,27 +302,28 @@ class GoogleMapsScraper:
                 cards = await page.query_selector_all(
                     'div[role="feed"] a[href*="/maps/place/"]'
                 )
-                new = 0
+                new: int = 0
                 for card in cards:
-                    href = await card.get_attribute("href")
-                    if href and href not in seen_hrefs:
-                        seen_hrefs.add(href)
-                        # Normalise URL
-                        match = re.search(
-                            r"(https://www\.google\.com/maps/place/[^?&]+)", href
-                        )
-                        url = match.group(1) if match else href
-                        if url not in self._seen_urls:
-                            collected_urls.append(url)
-                        new += 1
-                        pbar.update(1)
+                    href: str | None = await card.get_attribute("href")
+                    if not href or href in seen_hrefs:
+                        continue
+                    seen_hrefs.add(href)
+                    # Normalise URL
+                    match = re.search(
+                        r"(https://www\.google\.com/maps/place/[^?&]+)", href
+                    )
+                    url: str = match.group(1) if match else href
+                    if url not in self._seen_urls:
+                        collected_urls.append(url)
+                    new = new + 1
+                    pbar.update(1)
 
                 if len(collected_urls) + len(self._seen_urls) >= self.max_results:
                     log.info("Reached max_results limit (%d).", self.max_results)
                     break
 
                 if new == 0:
-                    stale_count += 1
+                    stale_count = stale_count + 1
                     if stale_count >= max_stale:
                         log.info("No new results after %d scrolls — stopping.", max_stale)
                         break
@@ -289,8 +346,9 @@ class GoogleMapsScraper:
                 await _random_delay(0.8, 1.8)
 
         # Trim to budget
-        remaining_budget = self.max_results - len(self._seen_urls)
-        return collected_urls[:max(0, remaining_budget)]
+        remaining_budget: int = self.max_results - len(self._seen_urls)
+        budget = max(0, remaining_budget)
+        return collected_urls[:budget]
 
     # ── Main entry point ────────────────────────
     async def run(self) -> None:
@@ -351,6 +409,14 @@ class GoogleMapsScraper:
                         await _random_delay(0.5, 1.5)
 
                         biz = await self._extract_detail(page)
+
+                        # Extract social media handles from the business website
+                        if biz.website:
+                            biz.instagram, biz.facebook, biz.email = await self._extract_social_links(page, biz.website)
+                            if biz.instagram:
+                                log.debug("[%d] 📸 Instagram: @%s", idx, biz.instagram)
+                            if biz.facebook:
+                                log.debug("[%d] 👤 Facebook: %s", idx, biz.facebook)
 
                         if biz.google_maps_url and biz.google_maps_url not in self._seen_urls:
                             self._seen_urls.add(biz.google_maps_url)

@@ -31,7 +31,7 @@ window.BUSINESS = {
     categories: ["Vapes", "CBD", "Kratom", "Hookah", "Delta-8", "Glass Pipes", "Cigars"],
 
     // ── Pricing (shown on demo page) ──────────────────────────────────────────
-    price: "$299 Setup · $29/mo",
+    price: "Starting at $99",
 
     // ── Testimonials ────────────────────────────────────────────────────────
     testimonials: [

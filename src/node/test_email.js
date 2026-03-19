@@ -8,7 +8,7 @@ sendFollowUp({
     city: "Houston",
     outcome: "interested",
     contact_method: "email",
-    contact_value: "roryulloa@gmail.com"
+    contact_value: "smokeshopgrowth@gmail.com"
 }).then(() => {
     console.log("Test finished.");
 }).catch(err => {

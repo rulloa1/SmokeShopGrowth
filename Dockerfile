@@ -1,28 +1,48 @@
-# Use official Playwright Python image which includes all browser dependencies natively
-FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
+# Use Node.js 20 with Python support for full-stack app
+FROM node:20-bookworm
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=webhook.py
+ENV NODE_ENV=production
 
-# Install Node.js (required for Vercel CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g vercel
+# Install Python, pip, and all Playwright/Chromium OS dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip python3-venv \
+    build-essential \
+    # Chromium OS deps
+    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+    libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libgtk-3-0 libx11-xcb1 libxcb-dri3-0 libxss1 libxtst6 \
+    fonts-liberation libappindicator3-1 xdg-utils wget ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set work directory
 WORKDIR /app
 
-# Install Python requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy package files and install Node dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Install Playwright browser binaries explicitly (dependencies are already in the base image)
-RUN playwright install chromium
+# Copy Python requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Install Playwright browser binaries (with OS deps already installed above)
+RUN python3 -m playwright install chromium
 
 # Copy project files
 COPY . .
 
-# Railway sets PORT dynamically; gunicorn reads it at start
-EXPOSE 8080
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT webhook:app"]
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data /app/deployments
+
+# Expose port (Railway sets PORT env var, app uses it)
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/api/ping', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
+
+# Start the server
+CMD ["node", "server.js"]

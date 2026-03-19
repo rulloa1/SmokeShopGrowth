@@ -1,9 +1,10 @@
+import csv
+import os
+import sys
+import time
+
 import gspread
 from google.oauth2.service_account import Credentials
-import csv
-import sys
-import os
-import time
 
 # Define the scope
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -12,13 +13,13 @@ SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 CREDENTIALS_FILE = 'credentials.json'
 
 def sync_to_crm(csv_path, sheet_url):
-    print(f"Starting CRM Sync...")
-    
+    print("Starting CRM Sync...")
+
     if not os.path.exists(CREDENTIALS_FILE):
         print(f"Error: {CREDENTIALS_FILE} not found.")
         print("Please ensure your Google Service Account credentials log is named 'credentials.json' and is in this directory.")
         sys.exit(1)
-        
+
     if not os.path.exists(csv_path):
         print(f"Error: Input file {csv_path} not found.")
         sys.exit(1)
@@ -30,58 +31,58 @@ def sync_to_crm(csv_path, sheet_url):
     except Exception as e:
         print(f"Authentication failed: {e}")
         sys.exit(1)
-        
+
     print("Opening spreadsheet...")
     try:
         # Open by URL or Key/ID doesn't matter, URL is usually easier for users to provide
         sheet = client.open_by_url(sheet_url).sheet1
     except Exception as e:
-        print(f"Failed to open spreadsheet. Ensure the service account email is added as an 'Editor' to the sheet.")
+        print("Failed to open spreadsheet. Ensure the service account email is added as an 'Editor' to the sheet.")
         print(f"Error details: {e}")
         sys.exit(1)
 
     print(f"Reading data from {csv_path}...")
     try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        with open(csv_path, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             data = list(reader)
             headers = reader.fieldnames
     except Exception as e:
         print(f"Failed to read CSV: {e}")
         sys.exit(1)
-        
+
     print(f"Found {len(data)} rows in local CSV.")
-    
+
     # Write Headers if the sheet is empty
     existing_data = sheet.get_all_records()
     if not existing_data and not sheet.row_values(1):
         print("Sheet is empty. Writing headers first...")
         sheet.insert_row(headers, 1)
-        
+
     # Get existing business names to avoid duplicates
     try:
         # Re-fetch if we just added headers
         existing_data = sheet.get_all_records()
         existing_names = [row.get('business_name', row.get('Name', '')).strip().lower() for row in existing_data]
-    except Exception as e:
-        print(f"Warning: Could not fetch existing records for deduplication. Assuming empty.")
+    except Exception:
+        print("Warning: Could not fetch existing records for deduplication. Assuming empty.")
         existing_names = []
 
     print("Syncing data to CRM...")
     skipped_count = 0
     rows_to_add = []
-    
+
     for row in data:
         b_name = row.get('business_name', row.get('Name', '')).strip()
-        
+
         if not b_name:
             continue
-            
+
         if b_name.lower() in existing_names:
             skipped_count += 1
             print(f"Skipping (Already exists): {b_name.encode('ascii','ignore').decode('ascii')}")
             continue
-            
+
         # Convert row dict to list in the exact order of the headers
         row_values = [str(row.get(h, "")) for h in headers]
         rows_to_add.append(row_values)
@@ -113,8 +114,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: python crm_sync.py <path_to_csv> <google_sheet_url>")
         sys.exit(1)
-        
+
     csv_file = sys.argv[1]
     g_sheet_url = sys.argv[2]
-    
+
     sync_to_crm(csv_file, g_sheet_url)
