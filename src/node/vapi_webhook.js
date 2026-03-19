@@ -215,6 +215,19 @@ app.post("/vapi/webhook", webhookLimiter, async (req, res) => {
             );
         }
 
+        // Send to CRM if email was captured
+        if (payload.contact_value && payload.contact_method === "email") {
+            const crmUrl = process.env.CRM_WEBHOOK_URL || `http://localhost:${process.env.PORT || 3000}/api/lead`;
+            axios.post(crmUrl, {
+                name: payload.business_name,
+                email: payload.contact_value,
+                phone: payload.phone,
+                city: payload.city,
+                outcome: payload.outcome,
+            }).then(() => console.log(`📬 Lead sent to CRM: ${payload.contact_value}`))
+              .catch(err => console.error("❌ CRM webhook failed:", err.message));
+        }
+
         // Send to Zapier + log to Google Sheets + trigger follow-up (in parallel)
         await Promise.all([
             notifyZapier(payload),

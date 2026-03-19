@@ -4,8 +4,8 @@ const path = require('path');
 function slugify(text) {
   return text.toString().toLowerCase()
     .replace(/\s+/g, '-')           // Replace spaces with -
-    .replace(/[^\w\-]+/g, '')       // Remove all non-word chars
-    .replace(/\-\-+/g, '-')         // Replace multiple - with single -
+    .replace(/[^\w-]+/g, '')        // Remove all non-word chars
+    .replace(/--+/g, '-')            // Replace multiple - with single -
     .replace(/^-+/, '')             // Trim - from start of text
     .replace(/-+$/, '');            // Trim - from end of text
 }
@@ -13,7 +13,7 @@ function slugify(text) {
 async function generateSites() {
   try {
     const template = await fs.readFile('template.html', 'utf8');
-    const shopsData = await fs.readFile('shops.json', 'utf8');
+    const shopsData = await fs.readFile(path.join(__dirname, '..', '..', 'tests', 'fixtures', 'shops.json'), 'utf8');
     const shops = JSON.parse(shopsData);
 
     const outputDir = path.join(__dirname, 'public', 'demos');

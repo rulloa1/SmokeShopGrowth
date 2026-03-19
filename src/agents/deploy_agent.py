@@ -2,9 +2,10 @@ import json
 import os
 import shutil
 import subprocess
+
+from domain_agent import bind_custom_domain
 from dotenv import load_dotenv
 from qa_agent import run_qa_check
-from domain_agent import bind_custom_domain
 
 load_dotenv()
 
@@ -17,16 +18,16 @@ def deploy_shop_website(lead_data):
     """
     shop_slug = lead_data.get('business_name', 'smoke-shop').lower().replace(' ', '-').replace("'", "")
     deploy_dir = f"deployments/{shop_slug}"
-    
+
     print(f"\n[DEPLOY AGENT] Preparing deployment for {lead_data.get('business_name')}...")
-    
+
     # 1. Clone Template into a unique deployment folder
     if os.path.exists(deploy_dir):
         shutil.rmtree(deploy_dir)
-    
+
     # Ensure the deployments folder exists
     os.makedirs("deployments", exist_ok=True)
-    
+
     try:
         shutil.copytree("template", deploy_dir)
         print(f"  [*] Cloned template to {deploy_dir}")
@@ -36,7 +37,7 @@ def deploy_shop_website(lead_data):
 
     # 2. Inject Data into config.js
     config_js_path = os.path.join(deploy_dir, "config.js")
-    
+
     config_data = {
         "name": lead_data.get('business_name'),
         "city": lead_data.get('city'),
@@ -53,13 +54,13 @@ def deploy_shop_website(lead_data):
         ],
     }
     js_content = f"// AUTO-GENERATED CONFIG FOR {lead_data.get('business_name')}\nwindow.BUSINESS = {json.dumps(config_data, indent=2)};\n"
-    
+
     with open(config_js_path, "w") as f:
         f.write(js_content)
-    print(f"  [*] Injected shop-specific data into config.js")
-        
-    print(f"\n[DEPLOY AGENT] Triggering Vercel Production Build...")
-    
+    print("  [*] Injected shop-specific data into config.js")
+
+    print("\n[DEPLOY AGENT] Triggering Vercel Production Build...")
+
     # 3. Deploy using Vercel CLI
     # It executes 'npx vercel --prod --yes' inside the clone directory to skip prompts
     try:
@@ -74,8 +75,8 @@ def deploy_shop_website(lead_data):
         # Vercel outputs the production URL to stdout
         output = result.stdout.strip()
         errors = result.stderr.strip()
-        
-        # The URL usually starts with https:// 
+
+        # The URL usually starts with https://
         deployed_url = None
         for line in (output + "\n" + errors).split("\n"):
             if line.startswith("https://") and "vercel.app" in line:
@@ -83,25 +84,25 @@ def deploy_shop_website(lead_data):
 
         if deployed_url:
             print(f"\n  [*] SUCCESS! Website is live at: {deployed_url}")
-            
+
             # --- Run Automated Quality Assurance ---
-            print(f"\n  [*] Running Post-Deployment QA...")
+            print("\n  [*] Running Post-Deployment QA...")
             qa_passed = run_qa_check(deployed_url, shop_slug)
-            
+
             if not qa_passed:
-                print(f"  [Error] Deployment completed but QA failed. Review required.")
+                print("  [Error] Deployment completed but QA failed. Review required.")
                 return None
-                
+
             # --- Optional: Bind Custom Domain ---
             custom_domain = lead_data.get('custom_domain')
             if custom_domain:
                 bind_custom_domain(deploy_dir, custom_domain)
-                
+
             return deployed_url
         else:
             print(f"\n  [Error] Vercel deployed but could not extract URL.\nOutput: {output}\nErrors: {errors}")
             return None
-            
+
     except Exception as e:
         print(f"  [Error] Deployment subprocess failed: {e}")
         return None
@@ -115,7 +116,7 @@ if __name__ == "__main__":
         "phone": "(713) 555-9999",
         "address": "123 Cloud St, Houston, TX 77002",
         "maps_url": "https://maps.google.com/?q=Cloud+9",
-        "custom_domain": None # "cloud9smokeshophtx.com" 
+        "custom_domain": None # "cloud9smokeshophtx.com"
     }
-    
+
     deploy_shop_website(test_lead)

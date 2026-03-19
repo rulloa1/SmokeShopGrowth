@@ -1,8 +1,9 @@
-import os
 import json
+import os
 import smtplib
+from datetime import datetime, timezone
 from email.message import EmailMessage
-from datetime import datetime, timedelta, timezone
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,7 +53,7 @@ def send_upsell_email(to_email, business_name, day):
         """
     else:
         return False
-        
+
     msg.set_content("Please enable HTML to view this email.")
     msg.add_alternative(html_content, subtype='html')
 
@@ -76,7 +77,7 @@ def process_upsell_queue():
         print("[Upsell Engine] No queue found. Exiting.")
         return
 
-    with open(UPSELL_QUEUE_FILE, 'r') as f:
+    with open(UPSELL_QUEUE_FILE) as f:
         queue_data = json.load(f)
 
     now = datetime.now(timezone.utc)

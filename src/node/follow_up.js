@@ -67,6 +67,9 @@ function buildDemoUrl(businessName, city, extraDetails = {}) {
 
 // ── Email template ────────────────────────────────────────────────────────────
 function buildEmailHtml(businessName, city, demoUrl, senderName) {
+    // Build Stripe payment link with personalization
+    const starterLink = `https://buy.stripe.com/cNi8wO5Na2DwfSB9WJ1Jm05?client_reference_id=${encodeURIComponent(businessName + '|' + city)}`;
+
     return `
 <!DOCTYPE html>
 <html>
@@ -75,7 +78,7 @@ function buildEmailHtml(businessName, city, demoUrl, senderName) {
   <div style="max-width:580px;margin:0 auto;padding:40px 24px;">
 
     <h1 style="color:#00f0ff;font-size:1.6rem;margin-bottom:8px;">
-      Hey ${businessName} 👋
+      Hey ${businessName}
     </h1>
 
     <p style="color:#ccc;font-size:1rem;line-height:1.7;margin-bottom:24px;">
@@ -88,20 +91,33 @@ function buildEmailHtml(businessName, city, demoUrl, senderName) {
          style="display:inline-block;background:linear-gradient(90deg,#00f0ff,#39ff14);
                 color:#000;font-weight:700;padding:14px 36px;border-radius:999px;
                 font-size:1.1rem;text-decoration:none;">
-        👁 View Your Free Demo
+        View Your Free Demo
       </a>
     </div>
 
     <p style="color:#aaa;font-size:.9rem;line-height:1.7;">
       This shows what a clean, mobile-friendly website could look like for your shop.
-      No commitment — just a free look. Reply here or call me if you want to move forward.
+      No commitment — just a free look.
     </p>
 
     <hr style="border:none;border-top:1px solid #222;margin:32px 0;" />
 
-    <p style="color:#666;font-size:.82rem;">
-      ${senderName} • Local Web Developer<br />
-      This demo was created specifically for ${businessName}
+    <p style="color:#ccc;font-size:1rem;line-height:1.7;margin-bottom:16px;">
+      <strong>Ready to make it yours?</strong> I'm offering a starter website for just <strong style="color:#39ff14;">$99</strong> — no monthly fees. All I ask is a quick testimonial.
+    </p>
+
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${starterLink}"
+         style="display:inline-block;background:#39ff14;
+                color:#000;font-weight:700;padding:12px 32px;border-radius:999px;
+                font-size:1rem;text-decoration:none;">
+        Get Your Website — $99
+      </a>
+    </div>
+
+    <p style="color:#666;font-size:.82rem;margin-top:32px;">
+      ${senderName} • SmokeShopGrowth<br />
+      Questions? Just reply to this email or call 281-323-0450
     </p>
   </div>
 </body>

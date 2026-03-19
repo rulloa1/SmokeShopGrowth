@@ -1,17 +1,18 @@
-import os
 import csv
+import os
+import random
 import sys
 import time
-import random
 import urllib.parse
-from dotenv import load_dotenv
+
 import requests
+from dotenv import load_dotenv
+
 # Add src/python to path so we can import qualifier.py
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
 sys.path.append(os.path.join(project_root, "src", "python"))
-
-from qualifier import clean_business_name
+from qualifier import clean_business_name  # noqa: E402
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,8 +30,8 @@ def load_leads(csv_path):
     if not os.path.exists(csv_path):
         print(f"Error: Could not find '{csv_path}'.")
         sys.exit(1)
-        
-    with open(csv_path, 'r', encoding='utf-8') as f:
+
+    with open(csv_path, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         f_names = reader.fieldnames
         headers = list(f_names) if f_names is not None else []
@@ -41,22 +42,16 @@ def dispatch_vapi_call(to_number, business_name, address, reason):
         if not VAPI_API_KEY or not VAPI_ASSISTANT_ID or not VAPI_PHONE_NUMBER_ID:
             print("  [Voice Skip] Vapi credentials not found in .env")
             return False
-            
+
         raw_digits = "".join(filter(str.isdigit, to_number or ""))
         if raw_digits.startswith("1") and len(raw_digits) == 11:
             formatted_number = "+" + raw_digits
         else:
             formatted_number = "+1" + raw_digits
-            
+
         # Clean and shorten the business name and address for natural speech
         b_name = clean_business_name(business_name)
-        
-        # Reduce address to just city/state (e.g. "Houston, TX") for natural speech
-        addr_parts: list[str] = [p.strip() for p in (address or "").split(',')]
-        if len(addr_parts) >= 2:
-            spoken_address: str = addr_parts[len(addr_parts)-2] + ", " + addr_parts[len(addr_parts)-1]
-        else:
-            spoken_address: str = (address or "")
+
         if "Broken website" in reason:
             first_msg = random.choice([
                 f"Hey, is this {b_name}? I was just trying to pull up your website and it looks like it might be down. Did you guys know about that?",
@@ -75,7 +70,7 @@ def dispatch_vapi_call(to_number, business_name, address, reason):
                 f"Hey, this is Alex. I was checking out {b_name}'s website and had a thought to help you guys out. Is now an okay time?",
                 f"Hi, is this {b_name}? I was looking at your shop online and was hoping to speak with whoever handles the website side of things.",
             ])
-        
+
         # System prompt that guides the AI through the full conversation flow
         system_prompt = (
             f"You are Alex, a friendly and professional sales rep for a web design agency that builds websites for smoke shops. "
@@ -91,7 +86,7 @@ def dispatch_vapi_call(to_number, business_name, address, reason):
             f"7) Close with: 'Perfect! I\\'ll send that over right now while we\\'re on the phone. You should see a demo site with your shop name on it within the next minute or two. If you want to move forward, there\\'s a button on the page that takes you straight to checkout — no pressure, totally free to look. Sound good? Awesome — talk soon!' "
             f"Keep the tone conversational, friendly, and never pushy. If they say no or not interested, thank them warmly and hang up."
         )
-            
+
         url = "https://api.vapi.ai/call/phone"
         headers = {
             "Authorization": f"Bearer {VAPI_API_KEY}",
@@ -118,9 +113,9 @@ def dispatch_vapi_call(to_number, business_name, address, reason):
                 }
             }
         }
-        
+
         response = requests.post(url, headers=headers, json=payload, timeout=10)
-        
+
         if response.status_code in [200, 201]:
             data = response.json()
             print(f"  [Voice Call Dispatched] Vapi Call ID: {data.get('id')}")
@@ -128,7 +123,7 @@ def dispatch_vapi_call(to_number, business_name, address, reason):
         else:
             print(f"  [Voice Call Error] Status {response.status_code}: {response.text}")
             return False
-            
+
     except Exception as e:
         print(f"  [Voice Error] Failed to dispatch Vapi call: {e}")
         return False
@@ -149,7 +144,7 @@ def generate_demo_url(business_name, city):
 def run_outreach(csv_path):
     print("Initializing Outreach Agent...")
     leads, headers = load_leads(csv_path)
-    
+
     # Initialize Clients
     if VAPI_API_KEY:
         print("Vapi Configuration Found.")
@@ -157,14 +152,14 @@ def run_outreach(csv_path):
         print("Warning: Vapi Credentials missing.")
 
     print(f"Loaded {len(leads)} leads. Scanning for HOT targets...")
-    
+
     hot_count: int = 0
     contacted_count: int = 0
-    
+
     # Add an Outreach Status column if it doesn't exist
     if headers is not None and "Outreach Status" not in headers:
          headers.append("Outreach Status")
-         
+
     for lead in leads:
         b_name = lead.get('business_name', lead.get('Name', 'Unknown')).strip().encode('ascii','ignore').decode('ascii')
         tag = lead.get('Lead Tag', '')
@@ -172,8 +167,7 @@ def run_outreach(csv_path):
         reason = lead.get('Qualification Reason', '')
         phone = lead.get('phone', '').strip()
         address = lead.get('address', '').strip()
-        email = lead.get('Email', '').strip() # Assuming we have an email column later
-        
+
         # Skip previously contacted leads
         if lead.get('Outreach Status') == 'Contacted':
             continue
@@ -182,9 +176,9 @@ def run_outreach(csv_path):
             # Explicitly type as int to satisfy IDE
             hot_count = int(hot_count) + 1
             print(f"\n[HOT LEAD] {b_name} | Score: {score}")
-            
+
             voice_sent = False
-            
+
             # Voice Call via Vapi
             if phone:
                  print(f"  Attempting AI Voice Call to {phone}...")
@@ -194,18 +188,18 @@ def run_outreach(csv_path):
                      print(f"  [Dry Run Voice Call] -> {b_name} on {phone}")
             else:
                  print("  [Voice Skip] No phone number provided in CSV.")
-                 
+
             # Note: We previously sent an SMS here. Since Twilio is removed,
             # we rely on the Vapi call agent collecting an email, or calling them back.
-            
+
             # Mark as contacted if we actually sent something
             if voice_sent:
                 lead['Outreach Status'] = 'Contacted'
                 contacted_count = int(contacted_count) + 1
-                
+
             # Small delay to mimic human speed / avoid rapid fire blocks
             time.sleep(1)
-            
+
     # Save the updated leads CSV
     try:
         output_csv = csv_path.replace(".csv", "_outreached.csv")
@@ -217,7 +211,7 @@ def run_outreach(csv_path):
     except Exception as e:
         print(f"\nFailed to save updated CSV: {e}")
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     print(f"HOT Leads Evaluated: {hot_count}")
     print(f"Successfully Contacted: {contacted_count}")
 

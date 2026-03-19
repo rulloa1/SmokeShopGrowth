@@ -1,9 +1,9 @@
 import os
-import json
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, request, jsonify
+
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request
 
 load_dotenv()
 
@@ -19,9 +19,9 @@ def send_demo_email(to_email, business_name, city):
     if not SMTP_USER or not SMTP_PASS:
         print("[-] SMTP credentials missing. Cannot send email.")
         return False
-        
+
     demo_url = f"https://smoke-shop-premium-demo.netlify.app/?shop={business_name}&city={city}"
-    
+
     msg = EmailMessage()
     msg['Subject'] = f"Your free demo site — {business_name}"
     msg['From'] = f"{SENDER_NAME} <{SMTP_USER}>"
@@ -67,7 +67,7 @@ def send_demo_email(to_email, business_name, city):
     </body>
     </html>
     """
-    
+
     msg.set_content(f"Hey {business_name},\n\nHere's your free demo site: {demo_url}\n\n— {SENDER_NAME}")
     msg.add_alternative(html_content, subtype='html')
 
@@ -87,31 +87,31 @@ def send_demo_email(to_email, business_name, city):
 def vapi_webhook():
     data = request.json
     event_type = data.get('message', {}).get('type') or data.get('type')
-    
+
     if event_type == 'end-of-call-report':
         analysis = data.get('message', {}).get('analysis') or {}
         structured = analysis.get('structuredData') or {}
         call = data.get('message', {}).get('call') or {}
         metadata = call.get('metadata') or {}
-        
+
         business_name = metadata.get('business_name') or structured.get('business_name', 'Shop Owner')
         city = metadata.get('city', 'your city')
         email = structured.get('email')
-        
+
         # In our Vapi Prompt we ask to collect "contact_value" for the email.
         contact_value = structured.get('contact_value')
         if not email and contact_value and '@' in contact_value:
             email = contact_value
-            
+
         print(f"\n[Webhook] Call ended with {business_name}.", flush=True)
         print(f"[Webhook] Analysis Outcome: {structured.get('outcome')}", flush=True)
-        
+
         if email:
             print(f"[Webhook] AI collected email: {email} - Sending demo payload...", flush=True)
             send_demo_email(email, business_name, city)
         else:
             print("[Webhook] No email collected by AI during the call.", flush=True)
-            
+
     return jsonify({"status": "received"}), 200
 
 if __name__ == '__main__':
