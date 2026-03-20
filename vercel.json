@@ -1,18 +1,21 @@
 {
   "version": 2,
-  "framework": null,
-  "buildCommand": "npm install",
-  "outputDirectory": "public",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/webhook/(.*)", "destination": "/webhook/$1" },
-    { "source": "/demos/(.*)", "destination": "/demos/$1" },
-    { "source": "/social/(.*)", "destination": "/social/$1" },
-    { "source": "/(.*)", "destination": "/" }
-  ],
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs20.x"
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
     }
-  }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/server.js" },
+    { "src": "/webhook/(.*)", "dest": "/server.js" },
+    { "src": "/demos/(.*)", "dest": "/server.js" },
+    { "src": "/social/(.*)", "dest": "/server.js" },
+    { "src": "/(.*\\.(html|css|js|png|jpg|ico|svg|json))$", "dest": "/public/$1" },
+    { "src": "/(.*)", "dest": "/public/index.html" }
+  ]
 }
