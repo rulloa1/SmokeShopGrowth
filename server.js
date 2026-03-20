@@ -39,6 +39,11 @@ app.get('/api/ping', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Railway health check
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', service: 'dashboard', ts: Date.now() });
+});
+
 // Mount route modules
 app.use(require('./routes/api'));
 app.use(require('./routes/demos'));
