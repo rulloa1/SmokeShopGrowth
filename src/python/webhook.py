@@ -1,6 +1,6 @@
 import os
-import sys
 import smtplib
+import sys
 from email.message import EmailMessage
 
 # ---------------------------------------------------------------------------
@@ -11,15 +11,8 @@ if os.path.isdir(_agents_dir):
     sys.path.insert(0, os.path.abspath(_agents_dir))
 # ---------------------------------------------------------------------------
 
-import stripe
-from crm import lookup_lead_from_crm, update_crm_deployed, update_crm_payment
-from delivery_agent import trigger_delivery_flow
-from deploy_agent import deploy_shop_website
-from error_handler import log_failed_job
-from flask import Flask, jsonify, request
-from logger import get_logger
-
-from config import (
+import stripe  # noqa: E402
+from config import (  # noqa: E402
     DEMO_BASE_URL,
     SENDER_NAME,
     SMTP_HOST,
@@ -29,6 +22,12 @@ from config import (
     STRIPE_API_KEY,
     STRIPE_WEBHOOK_SECRET,
 )
+from crm import lookup_lead_from_crm, update_crm_deployed, update_crm_payment  # noqa: E402
+from delivery_agent import trigger_delivery_flow  # noqa: E402
+from deploy_agent import deploy_shop_website  # noqa: E402
+from error_handler import log_failed_job  # noqa: E402
+from flask import Flask, jsonify, request  # noqa: E402
+from logger import get_logger  # noqa: E402
 
 log = get_logger(__name__)
 

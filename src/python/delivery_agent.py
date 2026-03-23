@@ -10,8 +10,6 @@ Responsibilities:
 import smtplib
 from email.message import EmailMessage
 
-from logger import get_logger
-
 from config import (
     SENDER_NAME,
     SMTP_HOST,
@@ -19,6 +17,7 @@ from config import (
     SMTP_PORT,
     SMTP_USER,
 )
+from logger import get_logger
 
 log = get_logger(__name__)
 

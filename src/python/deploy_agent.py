@@ -15,7 +15,6 @@ Optional env vars:
 """
 
 import os
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -48,7 +47,7 @@ TEMPLATE_PATH = os.environ.get(
 def _load_template() -> str:
     """Load the HTML template file."""
     try:
-        with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
+        with open(TEMPLATE_PATH, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         log.error(f"Template not found at: {TEMPLATE_PATH}")

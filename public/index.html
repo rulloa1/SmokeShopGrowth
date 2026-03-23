@@ -922,6 +922,62 @@
       </form>
     </div>
 
+    <!-- ── Single Business ── -->
+    <div class="card">
+      <div class="card-title">🎯 Run on Single Business</div>
+      <form id="single-biz-form">
+        <label>
+          <span>Business Name <span style="color:var(--red)">*</span></span>
+          <input type="text" id="sb-name" placeholder="e.g. Cloud Nine Smoke Shop" required />
+        </label>
+        <div class="form-grid mt-16">
+          <label>
+            <span>Website</span>
+            <input type="text" id="sb-website" placeholder="e.g. cloudninesmoke.com" />
+          </label>
+          <label>
+            <span>Phone</span>
+            <input type="text" id="sb-phone" placeholder="e.g. +15121234567" />
+          </label>
+        </div>
+        <div class="form-grid mt-16">
+          <label>
+            <span>City</span>
+            <input type="text" id="sb-city" placeholder="e.g. Austin TX" />
+          </label>
+          <label style="padding-top:24px;">
+            <label class="toggle-label">
+              <input type="checkbox" id="sb-call" class="toggle-input" />
+              <span class="toggle-track"></span>
+              <span>Place AI Call</span>
+            </label>
+          </label>
+        </div>
+        <div class="mt-24">
+          <button type="submit" class="btn-run" id="sb-btn" style="background:linear-gradient(135deg,#7c3aed,#db2777);">
+            <span id="sb-btn-text">🔥 Enrich + Generate Demo</span>
+          </button>
+        </div>
+        <div id="sb-status" class="qc-status-bar"></div>
+      </form>
+    </div>
+
+    <!-- ── Live Pipeline Log ── -->
+    <div class="card" id="live-log-card" style="display:none;">
+      <div class="card-title card-title--row">
+        <span>📡 Live Pipeline Log</span>
+        <button onclick="document.getElementById('live-log-card').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem;">✕</button>
+      </div>
+      <div id="live-log-steps" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
+      <div id="live-log-output" style="
+        background:var(--bg);border:1px solid var(--border);border-radius:8px;
+        padding:12px;height:280px;overflow-y:auto;font-family:monospace;font-size:0.78rem;
+        color:var(--text-dim);line-height:1.6;
+      ">
+        <div style="color:var(--muted);text-align:center;padding:40px 0;">Waiting for pipeline events…</div>
+      </div>
+    </div>
+
     <!-- ── Progress ── -->
     <div class="card" id="progress-card">
       <div class="card-title card-title--row">
@@ -1093,6 +1149,26 @@
       }, 4000);
     }
 
+    // ── Authenticated fetch helper ──
+    // All API calls go through this to include the x-api-key header.
+    // The key is read from a prompt on first use and cached in sessionStorage.
+    function getApiKey() {
+      let key = sessionStorage.getItem('ssg-api-key');
+      if (!key) {
+        key = prompt('Enter your API key:');
+        if (key) sessionStorage.setItem('ssg-api-key', key);
+      }
+      return key || '';
+    }
+
+    async function apiFetch(url, options = {}) {
+      const headers = { ...options.headers, 'x-api-key': getApiKey() };
+      if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
+      return fetch(url, { ...options, headers });
+    }
+
     let currentJobId = null;
 
     const form = document.getElementById('pipeline-form');
@@ -1198,15 +1274,15 @@
       // Start job
       let jobId;
       try {
-        const resp = await fetch('/api/run', {
+        const resp = await apiFetch('/api/run', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ city, bizType, maxResults, skipLighthouse, generateDemo, exportSheets, sheetsId }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'Server error');
         jobId = data.jobId;
         currentJobId = jobId;
+        startLiveLog(jobId);
       } catch (err) {
         appendLog({ type: 'error', message: `Failed to start: ${err.message}`, ts: Date.now() });
         showToast(`Pipeline error: ${err.message}`, 'error');
@@ -1285,9 +1361,8 @@
       qcStatus.style.color = 'var(--muted)';
 
       try {
-        const resp = await fetch('/webhook/call', {
+        const resp = await apiFetch('/webhook/call', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, business_name, city }),
         });
 
@@ -1311,11 +1386,107 @@
         if (sp) sp.remove();
       }
     });
+    // ── Single Business Logic ──
+    const sbForm = document.getElementById('single-biz-form');
+    const sbBtn = document.getElementById('sb-btn');
+    const sbBtnText = document.getElementById('sb-btn-text');
+    const sbStatus = document.getElementById('sb-status');
+
+    sbForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const businessName = document.getElementById('sb-name').value.trim();
+      const website = document.getElementById('sb-website').value.trim();
+      const phone = document.getElementById('sb-phone').value.trim();
+      const city = document.getElementById('sb-city').value.trim();
+      const makeCall = document.getElementById('sb-call').checked;
+
+      sbBtn.disabled = true;
+      sbBtnText.textContent = 'Starting…';
+      sbStatus.textContent = '';
+
+      try {
+        const resp = await apiFetch('/api/run-single', {
+          method: 'POST',
+          body: JSON.stringify({ businessName, website, phone, city, makeCall, generateDemo: true }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Server error');
+
+        sbStatus.textContent = `✅ Pipeline started! Job: ${data.jobId}`;
+        sbStatus.style.color = 'var(--green)';
+        showToast(`Pipeline started for "${businessName}"`, 'success');
+        startLiveLog(data.jobId);
+      } catch (err) {
+        sbStatus.textContent = `❌ ${err.message}`;
+        sbStatus.style.color = 'var(--red)';
+        showToast(`Error: ${err.message}`, 'error');
+      } finally {
+        sbBtn.disabled = false;
+        sbBtnText.textContent = '🔥 Enrich + Generate Demo';
+      }
+    });
+
+    // ── Live Pipeline Log (SSE) ──
+    let liveLogEs = null;
+    const STEP_LABELS = ['Scrape','Audit','Enrich','Outreach','Demo','Email','Calls','Done'];
+
+    function startLiveLog(jobId) {
+      const card = document.getElementById('live-log-card');
+      const output = document.getElementById('live-log-output');
+      const steps = document.getElementById('live-log-steps');
+
+      card.style.display = 'block';
+      output.innerHTML = '';
+      steps.innerHTML = STEP_LABELS.map((l, i) =>
+        `<span id="step-${i}" style="padding:2px 8px;border-radius:4px;font-size:0.72rem;background:var(--border);color:var(--muted)">${l}</span>`
+      ).join('');
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      if (liveLogEs) liveLogEs.close();
+      liveLogEs = new EventSource(`/api/status/${jobId}`);
+
+      liveLogEs.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'log' || msg.type === 'step' || msg.type === 'success' || msg.type === 'warn' || msg.type === 'error') {
+            const color = msg.type === 'success' ? '#22c55e'
+                        : msg.type === 'step'    ? '#60a5fa'
+                        : msg.type === 'warn'    ? '#f59e0b'
+                        : msg.type === 'error'   ? '#ef4444'
+                        : 'var(--text-dim)';
+            const line = document.createElement('div');
+            line.style.color = color;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg.message || msg.data || JSON.stringify(msg)}`;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+          }
+          if (msg.step !== undefined) {
+            document.querySelectorAll('#live-log-steps span').forEach((s, i) => {
+              s.style.background = i < msg.step ? '#22c55e33' : i === msg.step ? '#60a5fa33' : 'var(--border)';
+              s.style.color = i <= msg.step ? 'var(--text)' : 'var(--muted)';
+            });
+          }
+          if (msg.type === 'done') {
+            liveLogEs.close();
+            const line = document.createElement('div');
+            line.style.color = '#22c55e';
+            line.style.fontWeight = 'bold';
+            line.textContent = '🎉 Pipeline complete!';
+            output.appendChild(line);
+          }
+        } catch {}
+      };
+
+      liveLogEs.onerror = () => {
+        liveLogEs.close();
+      };
+    }
+
     // ── Lead Management Logic ──
     async function refreshLeads() {
       const container = document.getElementById('leads-container');
       try {
-        const res = await fetch('/api/leads');
+        const res = await apiFetch('/api/leads');
         const data = await res.json();
         
         if (!data.leads || data.leads.length === 0) {
@@ -1345,9 +1516,8 @@
     async function deploySite(business, email, tier) {
       showToast(`Building site for ${business}...`, 'info');
       try {
-        const res = await fetch('/api/deploy-site', {
+        const res = await apiFetch('/api/deploy-site', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ business, email, tier })
         });
         const data = await res.json();
@@ -1400,7 +1570,7 @@
       socLog(`Generating 30-day calendar for "${biz}" via GPT-4o…`, 'step');
 
       try {
-        const res = await fetch('/api/social/generate-calendar', {
+        const res = await apiFetch('/api/social/generate-calendar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ business_name: biz, city, instagram: ig, specialty }),
@@ -1438,7 +1608,7 @@
     async function listBufferProfiles() {
       socLog('Fetching Buffer profiles…', 'step');
       try {
-        const res = await fetch('/api/social/buffer-profiles');
+        const res = await apiFetch('/api/social/buffer-profiles');
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Server error');
         data.profiles.forEach(p => {
@@ -1464,7 +1634,7 @@
       socLog(`Scheduling ${currentCalendar.length} posts to Buffer profile ${profileId}…`, 'step');
 
       try {
-        const res = await fetch('/api/social/schedule', {
+        const res = await apiFetch('/api/social/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ posts: currentCalendar, profileId, businessName: currentCalendarBiz }),
@@ -1487,7 +1657,7 @@
       const limit = document.getElementById('soc-dm-limit').value;
       socLog('Running DM outreach dry-run (preview only)…', 'step');
       try {
-        const res = await fetch('/api/social/outreach-preview', {
+        const res = await apiFetch('/api/social/outreach-preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ inputFile, limit }),
@@ -1507,7 +1677,7 @@
       if (!confirm(`Send up to ${limit} Instagram DMs? This will open a browser and run for ~${Math.round(limit * 67 / 60)} minutes.`)) return;
       socLog(`Starting DM outreach (${limit}/day limit)…`, 'step');
       try {
-        const res = await fetch('/api/social/outreach-run', {
+        const res = await apiFetch('/api/social/outreach-run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ inputFile, limit }),
