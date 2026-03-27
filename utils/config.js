@@ -34,14 +34,9 @@ function validateConfig() {
     }
 
     if (missing.length > 0) {
-        console.error('\n❌ [CRITICAL ERROR] Missing Required Environment Variables:');
-        missing.forEach(m => console.error(`   - ${m}`));
-        console.error('Please add these keys to your .env file and restart the server.\n');
-        
-        // Fail fast
-        if (require.main === module || process.env.NODE_ENV !== 'test') {
-            process.exit(1);
-        }
+        console.warn('\n⚠️  [WARNING] Missing Environment Variables (some features may not work):');
+        missing.forEach(m => console.warn(`   - ${m}`));
+        console.warn('Add these keys to your .env file to enable all features.\n');
     }
 
     if (warnings.length > 0 && process.env.NODE_ENV !== 'test') {
