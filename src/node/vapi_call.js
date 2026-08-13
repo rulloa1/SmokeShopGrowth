@@ -1,12 +1,9 @@
-import "dotenv/config";
-import axios from "axios";
-import fs from "fs";
-import path from "path";
-import { createReadStream } from "fs";
-import csvParser from "csv-parser";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+require("dotenv").config();
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
+const csvParser = require("csv-parser");
+const { createReadStream } = fs;
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID;

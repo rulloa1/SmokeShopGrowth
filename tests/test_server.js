@@ -115,6 +115,11 @@ describe('Server Routes', () => {
         assert.ok(data.leads !== undefined);
     });
 
+    it('GET /api/template-submissions without auth returns 401', async () => {
+        const res = await get('/api/template-submissions');
+        assert.strictEqual(res.status, 401);
+    });
+
     it('GET /demos without auth returns 301', async () => {
         const res = await get('/demos');
         assert.strictEqual(res.status, 301);

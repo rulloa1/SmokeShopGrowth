@@ -24,11 +24,12 @@ from config import (  # noqa: E402
     STRIPE_WEBHOOK_SECRET,
 )
 from crm import lookup_lead_from_crm, update_crm_deployed, update_crm_payment  # noqa: E402
+from flask import Flask, jsonify, request  # noqa: E402
+from logger import get_logger  # noqa: E402
+
 from delivery_agent import trigger_delivery_flow  # noqa: E402
 from deploy_agent import deploy_shop_website  # noqa: E402
 from error_handler import log_failed_job  # noqa: E402
-from flask import Flask, jsonify, request  # noqa: E402
-from logger import get_logger  # noqa: E402
 
 log = get_logger(__name__)
 

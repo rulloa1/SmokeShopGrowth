@@ -40,8 +40,11 @@ coverage/
 htmlcov/
 
 # Data (may contain PII)
+/*.csv
+/*.json
 data/**/*.csv
 data/**/*.json
+data/**/*.db
 data/videos/
 *.mp3
 

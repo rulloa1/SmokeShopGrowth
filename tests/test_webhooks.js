@@ -63,7 +63,7 @@ describe('Voice Agent Webhooks', () => {
     });
 
     it('POST /webhook/call triggers ElevenLabs fetch', async () => {
-        const res = await post('/webhook/call', { phone: '123', business_name: 'Smoke' }, { auth: true });
+        const res = await post('/webhook/call', { phone: '123', business_name: 'Smoke', place_id: 'place_123' }, { auth: true });
         assert.strictEqual(res.status, 200);
         const data = JSON.parse(res.body);
         assert.strictEqual(data.success, true);

@@ -99,7 +99,7 @@ function personalizeTemplate(html, lead, colorIndex) {
     'Cloud Nine': shortName,
     '123 High St': address,
     'Denver, CO 80203': `${city}, ${state}`,
-    '\(303\) 555-0199': phone,
+    '(303) 555-0199': phone,
   };
 
   let out = html;

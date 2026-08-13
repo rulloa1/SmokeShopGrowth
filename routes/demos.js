@@ -5,12 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const { makeJobId } = require('../services/sse');
 const { webhookLimiter } = require('../middleware/rate-limit');
+const { apiKeyAuth } = require('../middleware/auth');
 const { redactEmail } = require('../utils/redact');
-<<<<<<< Updated upstream
 const db = require('../src/node/db');
-=======
 const { sendMail } = require('../services/email');
->>>>>>> Stashed changes
 
 // GET /demos - Gallery page
 router.get('/demos', async (req, res) => {
@@ -212,6 +210,6 @@ router.post('/api/template-submission', webhookLimiter, async (req, res) => {
     }
 });
 
-router.get('/api/template-submissions', (req, res) => res.json({ count: templateSubmissions.length, submissions: templateSubmissions }));
+router.get('/api/template-submissions', apiKeyAuth, (req, res) => res.json({ count: templateSubmissions.length, submissions: templateSubmissions }));
 
 module.exports = router;
